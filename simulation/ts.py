@@ -4,6 +4,9 @@ import heapq
 from enum import Enum
 # node for the TS system. 
 
+import spot
+# SPOT for LTL to A
+
 # state = placement in world
 
 # currently ignored
