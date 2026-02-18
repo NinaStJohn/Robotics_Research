@@ -37,7 +37,9 @@ int main()
             << (f[1][1].is(spot::op::G) ? " is G\n" : " is not G\n");
 
   spot::translator trans;
-  auto aut = trans.run(f);          // LTL -> automaton
-  spot::print_dot(std::cerr, aut);   // output automaton
+  trans.set_type(spot::postprocessor::BA);        // state-based Büchi
+  trans.set_pref(spot::postprocessor::Small);     // simplify
+  auto aut = trans.run(f);                        // LTL -> automaton
+  spot::print_dot(std::cerr, aut);                // output automaton
   return 0;
 }
