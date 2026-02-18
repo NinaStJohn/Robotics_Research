@@ -2,6 +2,11 @@
 #include <iostream>
 #include <spot/tl/formula.hh>
 #include <spot/tl/print.hh>
+#include <spot/twaalgos/hoa.hh>
+#include <spot/twaalgos/dot.hh>
+#include <spot/twaalgos/translate.hh>
+#include <spot/twaalgos/dot.hh>
+
 
 // constructing formula
 int main()
@@ -30,5 +35,9 @@ int main()
   // is also a is() shortcut:
   std::cout << f[1][1]
             << (f[1][1].is(spot::op::G) ? " is G\n" : " is not G\n");
+
+  spot::translator trans;
+  auto aut = trans.run(f);          // LTL -> automaton
+  spot::print_dot(std::cerr, aut);   // output automaton
   return 0;
 }

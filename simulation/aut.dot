@@ -1,0 +1,19 @@
+digraph "" {
+  rankdir=LR
+  label="Inf(0)&Inf(1)\n[gen. Büchi 2]"
+  labelloc="t"
+  node [shape="circle"]
+  I [label="", style=invis, width=0]
+  I -> 0
+  0 [label="0"]
+  0 -> 1 [label="1"]
+  0 -> 2 [label="1"]
+  1 [label="1"]
+  1 -> 1 [label="a\n{1}"]
+  1 -> 1 [label="!a\n{0,1}"]
+  2 [label="2"]
+  2 -> 2 [label="!b & !c"]
+  2 -> 2 [label="b & !c\n{0}"]
+  2 -> 2 [label="!b & c\n{1}"]
+  2 -> 2 [label="b & c\n{0,1}"]
+}

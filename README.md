@@ -44,3 +44,14 @@ this is a warning for furture me reference
  plan to do some benchmarking, run configure with --disable-devel.
 ===================================================================
 ```
+
+For getting the visulization
+```
+sudo apt install graphviz xdot
+
+// dot viewer example
+ltl2tgba -f "GFa & GFb" --dot | xdot -
+
+// open pdf example
+xdg-open automaton.pdf
+```
