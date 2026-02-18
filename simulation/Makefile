@@ -1,14 +1,24 @@
 CXX := g++
-CXXFLAGS := -std=c++17 -Wall -Wextra -O2
+CXXFLAGS := -std=c++17 -Wall -Wextra -O2 -Iinclude
 SPOT_FLAGS := $(shell pkg-config --cflags --libs spot)
 
-TARGET := test
-SRC := ts_world.cpp
+# Source files
+SIM_SRC := src/sim.cpp src/grid_world.cpp
+TEST_SRC := src/ts_world.cpp src/grid_world.cpp
 
-all: $(TARGET)
+# Output binaries
+SIM_TARGET := sim
+TEST_TARGET := test
 
-$(TARGET): $(SRC)
-	$(CXX) $(CXXFLAGS) $(SRC) $(SPOT_FLAGS) -o $(TARGET)
+# Default build (build nothing unless specified)
+all:
+	@echo "Use 'make sim' or 'make test'"
+
+sim: $(SIM_SRC)
+	$(CXX) $(CXXFLAGS) $(SIM_SRC) $(SPOT_FLAGS) -o $(SIM_TARGET)
+
+test: $(TEST_SRC)
+	$(CXX) $(CXXFLAGS) $(TEST_SRC) $(SPOT_FLAGS) -o $(TEST_TARGET)
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(SIM_TARGET) $(TEST_TARGET)
