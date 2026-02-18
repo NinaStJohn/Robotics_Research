@@ -6,5 +6,7 @@ This repository is deteicated to exploring LTL's applicaiton in robotics.
 
 ### References ###
 
-the spot library was used for 'dis
-https://spot.lre.epita.fr/tut03.html
+the spot github that was used
+```
+git clone https://gitlab.lre.epita.fr/spot/spot.git
+```

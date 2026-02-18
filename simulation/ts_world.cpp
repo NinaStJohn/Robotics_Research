@@ -3,6 +3,7 @@
 #include <spot/tl/formula.hh>
 #include <spot/tl/print.hh>
 
+// constructing formula
 int main()
 {
   // Build FGa -> (GFb & GFc)
