@@ -55,3 +55,5 @@ ltl2tgba -f "GFa & GFb" --dot | xdot -
 // open pdf example
 xdg-open automaton.pdf
 ```
+
+The makefile right now has a sim and a test flag. Use the test to see if spot is working. Sim is our grid_world simualtion.
