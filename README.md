@@ -45,7 +45,7 @@ this is a warning for furture me reference
 ===================================================================
 ```
 
-For getting the visulization
+For getting the visulization for LTL
 ```
 sudo apt install graphviz xdot
 
@@ -57,3 +57,10 @@ xdg-open automaton.pdf
 ```
 
 The makefile right now has a sim and a test flag. Use the test to see if spot is working. Sim is our grid_world simualtion.
+
+Visulization for grid world
+```
+sudo apt install graphviz xdot
+./test 2> aut.dot
+xdot aut.dot
+```

@@ -3,8 +3,9 @@ CXXFLAGS := -std=c++17 -Wall -Wextra -O2 -Iinclude
 SPOT_FLAGS := $(shell pkg-config --cflags --libs spot)
 
 # Source files
-SIM_SRC := src/sim.cpp src/grid_world.cpp
-TEST_SRC := src/ts_world.cpp src/grid_world.cpp
+SIM_SRC :=  $(wildcard src/*.cpp) # everything in src folder
+# TEST_SRC := src/ts_world.cpp src/grid_world.cpp
+TEST_SRC := test.cpp
 
 # Output binaries
 SIM_TARGET := sim
