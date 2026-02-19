@@ -1,6 +1,0 @@
-Mamammia
-
-
-Init a grid world
--
-
