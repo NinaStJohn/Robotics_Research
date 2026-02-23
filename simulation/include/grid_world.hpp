@@ -2,10 +2,11 @@
 #include <vector>
 #include <utility>
 
-class GridWorld{
+class GridWorld {
     public:
         using Pos = std::pair<int,int>;
-        GridWorld(int x, int h);
+
+        GridWorld(int w, int h);
 
         int width() const;
         int height() const;

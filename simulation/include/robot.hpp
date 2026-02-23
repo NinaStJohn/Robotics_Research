@@ -1,12 +1,10 @@
-# pragma once
+#pragma once
 #include <vector>
 #include <utility>
 
-
-class Robot{
+class Robot {
     public:
-        using Pos = std::pair<int,int>; // bot loc
-        Robot(int x, int y);
+        using Pos = std::pair<int,int>;
 
         enum class Action {
             Stay,
@@ -14,32 +12,28 @@ class Robot{
             Right,
             Up,
             Down
-            /*
-            Later:
-            Open, Close, Pickup, Drop...
-            
-            */
-        }
+            // Later: Open, Close, Pickup, Drop...
+        };
 
         Robot(int x, int y) : pos_{x,y} {}
-        virtual ~Robot() = default;         // allows dynamic dispatch
+        virtual ~Robot() = default;
 
-        Pos position();
-        void set_position(int, int);
+        Pos position() const { return pos_; }
+        void set_position(int x, int y) { pos_ = {x,y}; }
 
-        virtual cons std::vector<Action> & actions() const = 0;
+        // note: const ref return, and spelling
+        virtual const std::vector<Action>& actions() const = 0;
 
     protected:
-        Pos pos_; 
+        Pos pos_;
+};
 
-}
-
-// Robot classes, using inheritance
-class Turtlebot: public Robot{
+class Turtlebot : public Robot {
     public:
-        using Robot::Robot;
-        const std::vector<Action>^& actions() const override;
+        using Robot::Robot; // inherits Robot(int,int)
+
+        const std::vector<Action>& actions() const override;
 
     private:
         static const std::vector<Action> kActions_;
-}
+};
