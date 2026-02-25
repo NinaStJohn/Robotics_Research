@@ -253,10 +253,10 @@ static bdd action_label_bdd(
 
     // Then set exactly the chosen one true
     if (a == Robot::Action::Stay)        out &= bdd_ithvar(ap_stay);
-    else if (a == Robot::Action::Left)   out &= bdd_ithvar(ap_left);
-    else if (a == Robot::Action::Right)  out &= bdd_ithvar(ap_right);
-    else if (a == Robot::Action::Up)     out &= bdd_ithvar(ap_up);
-    else if (a == Robot::Action::Down)   out &= bdd_ithvar(ap_down);
+    else if (a == Robot::Action::Left)  out &= bdd_ithvar(ap_left);
+    else if (a == Robot::Action::Right) out &= bdd_ithvar(ap_right);
+    else if (a == Robot::Action::Up)    out &= bdd_ithvar(ap_up);
+    else if (a == Robot::Action::Down)  out &= bdd_ithvar(ap_down);
 
     return out;
 }
@@ -290,3 +290,8 @@ static void write_dot_and_pdf(
         std::cerr << "dot command failed (rc=" << rc << ")\n";
     }
 }
+
+// to vis them
+// dot -Tpdf ts.dot -o ts.pdf
+// dot -Tpdf nba.dot -o nba.pdf
+// dot -Tpdf nba.dot -o nba.pdf
