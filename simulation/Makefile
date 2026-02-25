@@ -17,7 +17,7 @@ SIM_TARGET  := sim
 TEST_TARGET := test
 
 all:
-	@echo "Use 'make main' or 'make sim'"
+	@echo "Use on of the following; 'make test', 'make main', 'make sim'"
 
 main: $(SRC) $(MAIN_SRC)
 	$(CXX) $(CXXFLAGS) $(SRC) $(MAIN_SRC) $(SPOT_FLAGS) -o $(MAIN_TARGET)
@@ -29,4 +29,4 @@ test: $(TEST_SRC)
 	$(CXX) $(CXXFLAGS) $(TEST_SRC) $(SPOT_FLAGS) -o $(TEST_TARGET)
 
 clean:
-	rm -f $(MAIN_TARGET) $(SIM_TARGET)
+	rm -f $(MAIN_TARGET) $(SIM_TARGET) $(TEST_TARGET)
