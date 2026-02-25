@@ -20,13 +20,13 @@ all:
 	@echo "Use on of the following; 'make test', 'make main', 'make sim'"
 
 main: $(SRC) $(MAIN_SRC)
-	$(CXX) $(CXXFLAGS) $(SRC) $(MAIN_SRC) $(SPOT_FLAGS) -o $(MAIN_TARGET)
+	$(CXX) $(CXXFLAGS) $(SRC) $(MAIN_SRC) $(SPOT_FLAGS) -o $(MAIN_TARGET).o
 
 sim: $(SRC) $(SIM_SRC)
-	$(CXX) $(CXXFLAGS) $(SRC) $(SIM_SRC) $(SPOT_FLAGS) -o $(SIM_TARGET)
+	$(CXX) $(CXXFLAGS) $(SRC) $(SIM_SRC) $(SPOT_FLAGS) -o $(SIM_TARGET).o
 
 test: $(TEST_SRC)
-	$(CXX) $(CXXFLAGS) $(TEST_SRC) $(SPOT_FLAGS) -o $(TEST_TARGET)
+	$(CXX) $(CXXFLAGS) $(TEST_SRC) $(SPOT_FLAGS) -o $(TEST_TARGET).o
 
 clean:
 	rm -f $(MAIN_TARGET) $(SIM_TARGET) $(TEST_TARGET)

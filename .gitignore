@@ -210,5 +210,9 @@ __marimo__/
 ltl2dstar-0.5.4/*
 buddy-2.4/*
 
+# output locaiton
 simulation/output/*
 simulation/output_fail/*
+
+# builds
+*.o
