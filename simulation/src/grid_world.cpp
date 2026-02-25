@@ -1,4 +1,5 @@
 #include "grid_world.hpp"
+#include <iostream>
 
 GridWorld::GridWorld(int w, int h)
     : w_(w), h_(h), blocked_(h, std::vector<unsigned char>(w, 0)) {}
@@ -30,4 +31,82 @@ std::vector<GridWorld::Pos> GridWorld::neighbors4(int x, int y) const {
             out.push_back({nx,ny});
     }
     return out;
+}
+
+// -----------------------------------------------------
+// Map labeling
+// "label grid"
+//
+// -----------------------------------------------------
+
+// static std::size_t idx(
+//     int x, int y, int w
+// ){
+//     return static_cast<std::size_t>(y * w + x);
+// }
+
+void GridWorld::define_label(
+    const std::string& name
+){
+    if (label_bit_.find(name) != label_bit_.end())
+        return;
+
+    int next = static_cast<int>(label_bit_.size());
+    if (next >= 64) {
+        std::cerr << "Too many labels (max 64)\n";
+        return;
+    }
+    label_bit_[name] = next;
+
+    if (labels_.empty()) {
+        labels_.assign(static_cast<std::size_t>(w_ * h_), 0ULL);
+    }
+}
+
+void GridWorld::set_label(const Pos& pnt,
+                          const std::string& name,
+                          bool value)
+{
+    int x = pnt.first;
+    int y = pnt.second;
+
+    if (!in_bounds(x, y)) return;
+
+    // allocate bit if needed
+    if (label_bit_.find(name) == label_bit_.end()) {
+        int next = static_cast<int>(label_bit_.size());
+        label_bit_[name] = next;
+    }
+
+    if (labels_.empty()) {
+        labels_.assign(static_cast<std::size_t>(w_ * h_), 0ULL);
+    }
+
+    int bit = label_bit_[name];
+    std::uint64_t mask = (1ULL << bit);
+    std::size_t idx = static_cast<std::size_t>(y * w_ + x);
+
+    if (value) labels_[idx] |= mask;
+    else       labels_[idx] &= ~mask;
+}
+
+bool GridWorld::has_label(const Pos& pnt,
+                          const std::string& name) const
+{
+    int x = pnt.first;
+    int y = pnt.second;
+
+    if (!in_bounds(x, y)) return false;
+
+    std::unordered_map<std::string,int>::const_iterator it =
+        label_bit_.find(name);
+
+    if (it == label_bit_.end()) return false;
+    if (labels_.empty()) return false;
+
+    int bit = it->second;
+    std::uint64_t mask = (1ULL << bit);
+    std::size_t idx = static_cast<std::size_t>(y * w_ + x);
+
+    return (labels_[idx] & mask) != 0ULL;
 }

@@ -50,23 +50,37 @@
 
 // Private functions
 static spot::twa_graph_ptr world_to_ts(
-    const GridWorld& world, const Robot& robot, const spot::bdd_dict_ptr& dict);
+    const GridWorld& world,
+    const Robot& robot,
+    const spot::bdd_dict_ptr& dict
+);
+
 static spot::twa_graph_ptr ltl_to_nba(
-    const spot::formula& f, const spot::bdd_dict_ptr& dict);
-static bdd label_of_cell(int x, int y, int ap_a, int ap_b);
+    const spot::formula& f,
+    const spot::bdd_dict_ptr& dict
+);
+
+static bdd label_of_cell(
+    const GridWorld& world,
+    const GridWorld::Pos& p,
+    int ap_a,
+    int ap_b
+);
+
 static bdd action_label_bdd(
     Robot::Action a,
-    int ap_stay, 
-    int ap_left, 
-    int ap_right, 
-    int ap_up, 
-    int ap_down);
-// vis helper
+    int ap_stay,
+    int ap_left,
+    int ap_right,
+    int ap_up,
+    int ap_down
+);
+
+// vis
 static void write_dot_and_pdf(
     const spot::const_twa_ptr& aut,
     const std::string& base_path
 );
-
 
 /* 
  * Functions 
@@ -137,11 +151,11 @@ static spot::twa_graph_ptr world_to_ts(
     // 1) Register APs used in TS labels
     int ap_a         = ts->register_ap("a");
     int ap_b         = ts->register_ap("b");
-    int ap_act_stay  = ts->register_ap("act_stay");
-    int ap_act_left  = ts->register_ap("act_left");
-    int ap_act_right = ts->register_ap("act_right");
-    int ap_act_up    = ts->register_ap("act_up");
-    int ap_act_down  = ts->register_ap("act_down");
+    int ap_act_stay  = ts->register_ap("S");
+    int ap_act_left  = ts->register_ap("L");
+    int ap_act_right = ts->register_ap("R");
+    int ap_act_up    = ts->register_ap("U");
+    int ap_act_down  = ts->register_ap("D");
     // make this into a string
 
     // 2) Create mapping from (x,y) -> Spot state id
@@ -210,7 +224,8 @@ static spot::twa_graph_ptr world_to_ts(
 
                 // Label edges with destination state's label
                 bdd actbdd = action_label_bdd(a, ap_act_stay, ap_act_left, ap_act_right, ap_act_up, ap_act_down);
-                bdd stbdd  = label_of_cell(nx, ny, ap_a, ap_b);   // or label_of_cell(x,y,...) depending on your convention
+                GridWorld::Pos np = {nx, ny};
+                bdd stbdd = label_of_cell(world, np, ap_a, ap_b);
                 bdd cond = actbdd & stbdd;
                 ts->new_edge(s, t, cond);
 
@@ -233,10 +248,14 @@ static spot::twa_graph_ptr world_to_ts(
 }
 
 // label
-static bdd label_of_cell(int x, int y, int ap_a, int ap_b)
-{
-    bool a_true = (x == 0 && y == 0);
-    bool b_true = (x == 1 && y == 1);
+static bdd label_of_cell(
+    const GridWorld& world,
+    const GridWorld::Pos& p,
+    int ap_a,
+    int ap_b
+){
+    bool a_true = world.has_label(p, "a");
+    bool b_true = world.has_label(p, "b");
 
     bdd out = bddtrue;
     out &= (a_true ? bdd_ithvar(ap_a) : bdd_nithvar(ap_a));
@@ -244,26 +263,42 @@ static bdd label_of_cell(int x, int y, int ap_a, int ap_b)
     return out;
 }
 
+// static bdd action_label_bdd(
+//     Robot::Action a,
+//     int ap_stay, 
+//     int ap_left, 
+//     int ap_right, 
+//     int ap_up, 
+//     int ap_down
+// ){
+//     bdd out = bddtrue;
+
+//     out &= (a == Robot::Action::Stay)  ? bdd_ithvar(ap_stay)  : bdd_nithvar(ap_stay);
+//     out &= (a == Robot::Action::Left)  ? bdd_ithvar(ap_left)  : bdd_nithvar(ap_left);
+//     out &= (a == Robot::Action::Right) ? bdd_ithvar(ap_right) : bdd_nithvar(ap_right);
+//     out &= (a == Robot::Action::Up)    ? bdd_ithvar(ap_up)    : bdd_nithvar(ap_up);
+//     out &= (a == Robot::Action::Down)  ? bdd_ithvar(ap_down)  : bdd_nithvar(ap_down);
+
+//     return out;
+// }
+
+// THIS IS FOR VISULIZATION PURPOSES
 static bdd action_label_bdd(
     Robot::Action a,
-    int ap_stay, 
-    int ap_left, 
-    int ap_right, 
-    int ap_up, 
-    int ap_down
-){
-    bdd out = bddtrue;
+    int ap_stay,
+    int ap_left,
+    int ap_right,
+    int ap_up,
+    int ap_down)
+{
+    if (a == Robot::Action::Stay)        return bdd_ithvar(ap_stay);
+    else if (a == Robot::Action::Left)  return bdd_ithvar(ap_left);
+    else if (a == Robot::Action::Right) return bdd_ithvar(ap_right);
+    else if (a == Robot::Action::Up)    return bdd_ithvar(ap_up);
+    else if (a == Robot::Action::Down)  return bdd_ithvar(ap_down);
 
-    out &= (a == Robot::Action::Stay)  ? bdd_ithvar(ap_stay)  : bdd_nithvar(ap_stay);
-    out &= (a == Robot::Action::Left)  ? bdd_ithvar(ap_left)  : bdd_nithvar(ap_left);
-    out &= (a == Robot::Action::Right) ? bdd_ithvar(ap_right) : bdd_nithvar(ap_right);
-    out &= (a == Robot::Action::Up)    ? bdd_ithvar(ap_up)    : bdd_nithvar(ap_up);
-    out &= (a == Robot::Action::Down)  ? bdd_ithvar(ap_down)  : bdd_nithvar(ap_down);
-
-    return out;
+    return bddfalse;
 }
-
-
 // -----------------------------------------------------
 // Viz
 //
