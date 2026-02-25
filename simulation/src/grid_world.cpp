@@ -110,3 +110,22 @@ bool GridWorld::has_label(const Pos& pnt,
 
     return (labels_[idx] & mask) != 0ULL;
 }
+
+const std::unordered_map<std::string,int>&GridWorld::label_map(
+) const
+{
+    return label_bit_;
+}
+
+// for labeling TS
+std::vector<std::string> GridWorld::label_names() const
+{
+    std::vector<std::string> out;
+    out.reserve(label_bit_.size());
+
+    std::unordered_map<std::string,int>::const_iterator it;
+    for (it = label_bit_.begin(); it != label_bit_.end(); ++it) {
+        out.push_back(it->first);
+    }
+    return out;
+}

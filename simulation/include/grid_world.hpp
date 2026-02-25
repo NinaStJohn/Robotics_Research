@@ -24,6 +24,8 @@ class GridWorld {
         void define_label(const std::string& name);
         void set_label(const Pos& pnt, const std::string& name, bool value);
         bool has_label(const Pos& pnt, const std::string& name) const;
+        const std::unordered_map<std::string,int>& label_map() const;
+        std::vector<std::string> label_names() const;
 
         // may need for label
         std::uint64_t label_mask(int x, int y) const;

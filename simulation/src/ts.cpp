@@ -46,7 +46,7 @@
 #include <spot/twa/bdddict.hh>
 #include <bddx.h>
 
-
+#include <algorithm>
 
 // Private functions
 static spot::twa_graph_ptr world_to_ts(
@@ -63,24 +63,32 @@ static spot::twa_graph_ptr ltl_to_nba(
 static bdd label_of_cell(
     const GridWorld& world,
     const GridWorld::Pos& p,
-    int ap_a,
-    int ap_b
+    const std::unordered_map<std::string,int>& ap_index
 );
 
 static bdd action_label_bdd(
     Robot::Action a,
-    int ap_stay,
-    int ap_left,
-    int ap_right,
-    int ap_up,
-    int ap_down
+    const std::unordered_map<Robot::Action, int>& apmap
 );
+
+// labeling registering
+static std::unordered_map<std::string,int>
+register_world_aps(const GridWorld& world,
+                   const spot::twa_graph_ptr& ts);
+
+static std::string action_ap_name(Robot::Action a);
 
 // vis
 static void write_dot_and_pdf(
     const spot::const_twa_ptr& aut,
     const std::string& base_path
 );
+
+static std::unordered_map<Robot::Action, int>
+register_action_aps(spot::twa_graph_ptr ts, const Robot& robot);
+
+
+
 
 /* 
  * Functions 
@@ -140,6 +148,28 @@ static spot::twa_graph_ptr ltl_to_nba(
 //
 // -----------------------------------------------------
 
+static std::string apset_string_for_cell(
+    const GridWorld& world, int x, int y
+){
+    GridWorld::Pos p = {x, y};
+    std::vector<std::string> names = world.label_names();
+
+    // Optional but recommended: deterministic order for hand-checking.
+    std::sort(names.begin(), names.end());
+    std::string s;
+    std::size_t i;
+    for (i = 0; i < names.size(); ++i)
+    {
+        const std::string& nm = names[i];
+        if (world.has_label(p, nm))
+        {
+            if (!s.empty()) s += ",";
+            s += nm;
+        }
+    }
+    if (s.empty()) s = "∅";
+    return s;
+}
 
 static spot::twa_graph_ptr world_to_ts(
     const GridWorld& world,
@@ -148,15 +178,14 @@ static spot::twa_graph_ptr world_to_ts(
 ){
     spot::twa_graph_ptr ts = spot::make_twa_graph(dict);
 
+    std::vector<std::string>* state_names =
+        ts->get_or_set_named_prop<std::vector<std::string> >("state-names");
+
     // 1) Register APs used in TS labels
-    int ap_a         = ts->register_ap("a");
-    int ap_b         = ts->register_ap("b");
-    int ap_act_stay  = ts->register_ap("S");
-    int ap_act_left  = ts->register_ap("L");
-    int ap_act_right = ts->register_ap("R");
-    int ap_act_up    = ts->register_ap("U");
-    int ap_act_down  = ts->register_ap("D");
-    // make this into a string
+    std::unordered_map<Robot::Action, int> act_ap = register_action_aps(ts, robot);
+
+    std::unordered_map<std::string,int> ap_index =
+    register_world_aps(world, ts);
 
     // 2) Create mapping from (x,y) -> Spot state id
     int w = world.width();
@@ -169,8 +198,19 @@ static spot::twa_graph_ptr world_to_ts(
     for (y = 0; y < h; ++y) {
         for (x = 0; x < w; ++x) {
             if (!world.is_blocked(x, y)) {
+                // label the state names
                 int sid = ts->new_state();
+
+                // IMPORTANT: store mapping so edges and init state work
                 id[static_cast<std::size_t>(y * w + x)] = sid;
+
+                // resize state_names if needed
+                if (state_names->size() <= static_cast<std::size_t>(sid))
+                    state_names->resize(static_cast<std::size_t>(sid) + 1);
+
+                // name = label set only (no pos)
+                std::string nm = apset_string_for_cell(world, x, y);
+                (*state_names)[static_cast<std::size_t>(sid)] = nm;
             }
         }
     }
@@ -223,9 +263,9 @@ static spot::twa_graph_ptr world_to_ts(
                 if (t < 0) continue;
 
                 // Label edges with destination state's label
-                bdd actbdd = action_label_bdd(a, ap_act_stay, ap_act_left, ap_act_right, ap_act_up, ap_act_down);
-                GridWorld::Pos np = {nx, ny};
-                bdd stbdd = label_of_cell(world, np, ap_a, ap_b);
+                bdd actbdd = action_label_bdd(a, act_ap);
+                GridWorld::Pos sp = {x, y};
+                bdd stbdd  = label_of_cell(world, sp, ap_index);
                 bdd cond = actbdd & stbdd;
                 ts->new_edge(s, t, cond);
 
@@ -247,58 +287,110 @@ static spot::twa_graph_ptr world_to_ts(
     return ts;
 }
 
+
+
 // label
 static bdd label_of_cell(
     const GridWorld& world,
     const GridWorld::Pos& p,
-    int ap_a,
-    int ap_b
+    const std::unordered_map<std::string,int>& ap_index
 ){
-    bool a_true = world.has_label(p, "a");
-    bool b_true = world.has_label(p, "b");
-
     bdd out = bddtrue;
-    out &= (a_true ? bdd_ithvar(ap_a) : bdd_nithvar(ap_a));
-    out &= (b_true ? bdd_ithvar(ap_b) : bdd_nithvar(ap_b));
+
+    std::unordered_map<std::string,int>::const_iterator it;
+
+    for (it = ap_index.begin();
+        it != ap_index.end();
+        ++it)
+    {
+        const std::string& name = it->first;
+        int ap = it->second;
+
+        bool val = world.has_label(p, name);
+
+        out &= (val ? bdd_ithvar(ap)
+                    : bdd_nithvar(ap));
+    }
+
     return out;
 }
-
-// static bdd action_label_bdd(
-//     Robot::Action a,
-//     int ap_stay, 
-//     int ap_left, 
-//     int ap_right, 
-//     int ap_up, 
-//     int ap_down
-// ){
-//     bdd out = bddtrue;
-
-//     out &= (a == Robot::Action::Stay)  ? bdd_ithvar(ap_stay)  : bdd_nithvar(ap_stay);
-//     out &= (a == Robot::Action::Left)  ? bdd_ithvar(ap_left)  : bdd_nithvar(ap_left);
-//     out &= (a == Robot::Action::Right) ? bdd_ithvar(ap_right) : bdd_nithvar(ap_right);
-//     out &= (a == Robot::Action::Up)    ? bdd_ithvar(ap_up)    : bdd_nithvar(ap_up);
-//     out &= (a == Robot::Action::Down)  ? bdd_ithvar(ap_down)  : bdd_nithvar(ap_down);
-
-//     return out;
-// }
 
 // THIS IS FOR VISULIZATION PURPOSES
 static bdd action_label_bdd(
     Robot::Action a,
-    int ap_stay,
-    int ap_left,
-    int ap_right,
-    int ap_up,
-    int ap_down)
+    const std::unordered_map<Robot::Action, int>& apmap)
 {
-    if (a == Robot::Action::Stay)        return bdd_ithvar(ap_stay);
-    else if (a == Robot::Action::Left)  return bdd_ithvar(ap_left);
-    else if (a == Robot::Action::Right) return bdd_ithvar(ap_right);
-    else if (a == Robot::Action::Up)    return bdd_ithvar(ap_up);
-    else if (a == Robot::Action::Down)  return bdd_ithvar(ap_down);
-
-    return bddfalse;
+    std::unordered_map<Robot::Action, int>::const_iterator it = apmap.find(a);
+    if (it == apmap.end())
+    {
+        // action not supported -> label false (no edge should match this action)
+        return bddfalse;
+    }
+    int apid = it->second;
+    return bdd_ithvar(apid);
 }
+
+
+// -----------------------------------------------------
+// Dynamic labeling of actions and states
+// + registering
+//
+// -----------------------------------------------------
+
+// state for grid world
+static std::unordered_map<std::string,int>
+register_world_aps(const GridWorld& world,
+                   const spot::twa_graph_ptr& ts)
+{
+    std::unordered_map<std::string,int> ap_index;
+
+    const std::unordered_map<std::string,int>& world_labels =
+        world.label_map();
+
+    std::unordered_map<std::string,int>::const_iterator it;
+
+    for (it = world_labels.begin();
+         it != world_labels.end();
+         ++it)
+    {
+        const std::string& name = it->first;
+        int ap = ts->register_ap(name);
+        ap_index[name] = ap;
+    }
+
+    return ap_index;
+}
+
+// actions from robot actions
+static std::string action_ap_name(
+    Robot::Action a
+){
+    if (a == Robot::Action::Stay)  return "S";
+    if (a == Robot::Action::Left)  return "L";
+    if (a == Robot::Action::Right) return "R";
+    if (a == Robot::Action::Up)    return "U";
+    if (a == Robot::Action::Down)  return "D"; 
+    return "UNK";
+}
+
+static std::unordered_map<Robot::Action, int>
+register_action_aps(spot::twa_graph_ptr ts, const Robot& robot)
+{
+    std::unordered_map<Robot::Action, int> m;
+
+    std::vector<Robot::Action> actions = robot.actions();
+    for (std::size_t i = 0; i < actions.size(); ++i)
+    {
+        Robot::Action a = actions[i];
+        std::string nm = action_ap_name(a); 
+        int apid = ts->register_ap(nm);
+        m.insert(std::make_pair(a, apid));
+    }
+    return m;
+}
+
+
+
 // -----------------------------------------------------
 // Viz
 //
@@ -327,3 +419,4 @@ static void write_dot_and_pdf(
         std::cerr << "dot command failed (rc=" << rc << ")\n";
     }
 }
+
