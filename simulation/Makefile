@@ -1,25 +1,32 @@
+# make file for all the things
 CXX := g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -O2 -Iinclude
 SPOT_FLAGS := $(shell pkg-config --cflags --libs spot)
 
-# Source files
-SIM_SRC :=  $(wildcard src/*.cpp) # everything in src folder
-# TEST_SRC := src/ts_world.cpp src/grid_world.cpp
+# Core source files (NO main here)
+SRC := $(wildcard src/*.cpp)
+
+# Entry points
+MAIN_SRC := apps/main.cpp
+SIM_SRC  := apps/sim.cpp
 TEST_SRC := test.cpp
 
-# Output binaries
-SIM_TARGET := sim
+# Targets
+MAIN_TARGET := main
+SIM_TARGET  := sim
 TEST_TARGET := test
 
-# Default build (build nothing unless specified)
 all:
-	@echo "Use 'make sim' or 'make test'"
+	@echo "Use 'make main' or 'make sim'"
 
-sim: $(SIM_SRC)
-	$(CXX) $(CXXFLAGS) $(SIM_SRC) $(SPOT_FLAGS) -o $(SIM_TARGET)
+main: $(SRC) $(MAIN_SRC)
+	$(CXX) $(CXXFLAGS) $(SRC) $(MAIN_SRC) $(SPOT_FLAGS) -o $(MAIN_TARGET)
+
+sim: $(SRC) $(SIM_SRC)
+	$(CXX) $(CXXFLAGS) $(SRC) $(SIM_SRC) $(SPOT_FLAGS) -o $(SIM_TARGET)
 
 test: $(TEST_SRC)
 	$(CXX) $(CXXFLAGS) $(TEST_SRC) $(SPOT_FLAGS) -o $(TEST_TARGET)
 
 clean:
-	rm -f $(SIM_TARGET) $(TEST_TARGET)
+	rm -f $(MAIN_TARGET) $(SIM_TARGET)
