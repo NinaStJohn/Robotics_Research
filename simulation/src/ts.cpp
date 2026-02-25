@@ -135,13 +135,14 @@ static spot::twa_graph_ptr world_to_ts(
     spot::twa_graph_ptr ts = spot::make_twa_graph(dict);
 
     // 1) Register APs used in TS labels
-    int ap_a = ts->register_ap("a");
-    int ap_b = ts->register_ap("b");
+    int ap_a         = ts->register_ap("a");
+    int ap_b         = ts->register_ap("b");
     int ap_act_stay  = ts->register_ap("act_stay");
     int ap_act_left  = ts->register_ap("act_left");
     int ap_act_right = ts->register_ap("act_right");
     int ap_act_up    = ts->register_ap("act_up");
-    int ap_act_down  = ts->register_ap("act_do");
+    int ap_act_down  = ts->register_ap("act_down");
+    // make this into a string
 
     // 2) Create mapping from (x,y) -> Spot state id
     int w = world.width();
@@ -210,9 +211,20 @@ static spot::twa_graph_ptr world_to_ts(
                 // Label edges with destination state's label
                 bdd actbdd = action_label_bdd(a, ap_act_stay, ap_act_left, ap_act_right, ap_act_up, ap_act_down);
                 bdd stbdd  = label_of_cell(nx, ny, ap_a, ap_b);   // or label_of_cell(x,y,...) depending on your convention
-
                 bdd cond = actbdd & stbdd;
                 ts->new_edge(s, t, cond);
+
+                // debug print
+                if (actbdd == bddfalse) {
+                    std::cerr << "actbdd is FALSE for action\n";
+                }
+                if (stbdd == bddfalse) {
+                    std::cerr << "stbdd is FALSE at (" << nx << "," << ny << ")\n";
+                }
+                if (cond == bddfalse) {
+                    std::cerr << "cond is FALSE at (" << x << "," << y << ") -> ("
+                            << nx << "," << ny << ")\n";
+                }
             }
         }
     }
@@ -223,15 +235,12 @@ static spot::twa_graph_ptr world_to_ts(
 // label
 static bdd label_of_cell(int x, int y, int ap_a, int ap_b)
 {
-    // Example labeling rule (change as needed)
     bool a_true = (x == 0 && y == 0);
     bool b_true = (x == 1 && y == 1);
 
     bdd out = bddtrue;
-
     out &= (a_true ? bdd_ithvar(ap_a) : bdd_nithvar(ap_a));
     out &= (b_true ? bdd_ithvar(ap_b) : bdd_nithvar(ap_b));
-
     return out;
 }
 
@@ -241,22 +250,15 @@ static bdd action_label_bdd(
     int ap_left, 
     int ap_right, 
     int ap_up, 
-    int ap_down)
-{
-    // Start by forcing all actions false
+    int ap_down
+){
     bdd out = bddtrue;
-    out &= bdd_nithvar(ap_stay);
-    out &= bdd_nithvar(ap_left);
-    out &= bdd_nithvar(ap_right);
-    out &= bdd_nithvar(ap_up);
-    out &= bdd_nithvar(ap_down);
 
-    // Then set exactly the chosen one true
-    if (a == Robot::Action::Stay)        out &= bdd_ithvar(ap_stay);
-    else if (a == Robot::Action::Left)   out &= bdd_ithvar(ap_left);
-    else if (a == Robot::Action::Right)  out &= bdd_ithvar(ap_right);
-    else if (a == Robot::Action::Up)     out &= bdd_ithvar(ap_up);
-    else if (a == Robot::Action::Down)   out &= bdd_ithvar(ap_down);
+    out &= (a == Robot::Action::Stay)  ? bdd_ithvar(ap_stay)  : bdd_nithvar(ap_stay);
+    out &= (a == Robot::Action::Left)  ? bdd_ithvar(ap_left)  : bdd_nithvar(ap_left);
+    out &= (a == Robot::Action::Right) ? bdd_ithvar(ap_right) : bdd_nithvar(ap_right);
+    out &= (a == Robot::Action::Up)    ? bdd_ithvar(ap_up)    : bdd_nithvar(ap_up);
+    out &= (a == Robot::Action::Down)  ? bdd_ithvar(ap_down)  : bdd_nithvar(ap_down);
 
     return out;
 }
