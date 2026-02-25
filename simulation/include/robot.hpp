@@ -18,8 +18,8 @@ class Robot {
         Robot(int x, int y) : pos_{x,y} {}
         virtual ~Robot() = default;
 
-        Pos position() const { return pos_; }
-        void set_position(int x, int y) { pos_ = {x,y}; }
+        Pos position() const;
+        void set_position(int x, int y);
 
         // note: const ref return, and spelling
         virtual const std::vector<Action>& actions() const = 0;
@@ -27,6 +27,14 @@ class Robot {
     protected:
         Pos pos_;
 };
+
+
+/*
+ * Robot types:
+ *
+ * 
+*/
+
 
 class Turtlebot : public Robot {
     public:

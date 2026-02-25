@@ -7,13 +7,16 @@
 */
 
 #include "robot.hpp"
+#include <vector>
+#include <utility>
 
 // public returns
-Pos position() const {
-    return pos_; 
+Robot::Pos Robot::position() const {
+    return pos_;
 }
-void set_position(int x, int y) { 
-    pos_ = {x,y};
+
+void Robot::set_position(int x, int y) {
+    pos_ = {x, y};
 }
 
 // defining the turtlebot action set (static storage)
@@ -24,8 +27,8 @@ const std::vector<Robot::Action> Turtlebot::kActions_ = {
     Robot::Action::Right,
     Robot::Action::Up,
     Robot::Action::Down
-}
+};
 
-const std::vector<Robot::Actions>& Turtlebot::actions{} const {
+const std::vector<Robot::Action>& Turtlebot::actions() const {
     return kActions_;
 }
