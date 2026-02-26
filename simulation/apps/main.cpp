@@ -16,16 +16,19 @@
 int main() {
     // make outp0ut
     std::filesystem::create_directory("output");
-    GridWorld world(2, 2);
+    // GridWorld world(2, 2);
 
+    // world.set_label({0,0}, "a", true);
+    // world.set_label({1,1}, "b", true);
+    // world.set_label({0,1}, "c", true);
+    // world.set_label({1,0}, "d", true);
+
+    GridWorld world(2, 1);
     world.set_label({0,0}, "a", true);
-    world.set_label({1,1}, "b", true);
-    world.set_label({0,1}, "c", true);
-    world.set_label({1,0}, "d", true);
-
+    world.set_label({1,0}, "b", true);
 
     // world.setblocked(1.0);
-    Turtlebot bot1(0, 0);
+    Turtlebot bot1(1, 0);
 
     // LTL formula 
     std::string ltl = "G(a -> Fb)";

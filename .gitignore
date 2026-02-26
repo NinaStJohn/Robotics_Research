@@ -216,3 +216,4 @@ simulation/output_fail/*
 
 # builds
 *.o
+*.out

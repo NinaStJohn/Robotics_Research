@@ -262,24 +262,16 @@ static spot::twa_graph_ptr world_to_ts(
                 int t = id[static_cast<std::size_t>(ny * w + nx)];
                 if (t < 0) continue;
 
-                // Label edges with destination state's label
+                // Label edges with destination state's label (for product)
                 bdd actbdd = action_label_bdd(a, act_ap);
-                GridWorld::Pos sp = {x, y};
-                bdd stbdd  = label_of_cell(world, sp, ap_index);
-                bdd cond = actbdd & stbdd;
+                // destination cell
+                GridWorld::Pos dstpos = {nx, ny};
+                // world valuation at destination             
+                bdd stbdd = label_of_cell(world, dstpos, ap_index); 
+
+                bdd cond = bdd_and(actbdd, stbdd);
                 ts->new_edge(s, t, cond);
 
-                // debug print
-                if (actbdd == bddfalse) {
-                    std::cerr << "actbdd is FALSE for action\n";
-                }
-                if (stbdd == bddfalse) {
-                    std::cerr << "stbdd is FALSE at (" << nx << "," << ny << ")\n";
-                }
-                if (cond == bddfalse) {
-                    std::cerr << "cond is FALSE at (" << x << "," << y << ") -> ("
-                            << nx << "," << ny << ")\n";
-                }
             }
         }
     }
