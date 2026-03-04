@@ -2,6 +2,7 @@
 CXX := g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -O2 -Iinclude
 SPOT_FLAGS := $(shell pkg-config --cflags --libs spot)
+RAYLIB_FLAGS := $(shell pkg-config --cflags --libs raylib)
 
 # Core source files (NO main here)
 SRC := $(wildcard src/*.cpp)
@@ -20,7 +21,7 @@ all:
 	@echo "Use on of the following; 'make test', 'make main', 'make sim'"
 
 main: $(SRC) $(MAIN_SRC)
-	$(CXX) $(CXXFLAGS) $(SRC) $(MAIN_SRC) $(SPOT_FLAGS) -o $(MAIN_TARGET).out
+	$(CXX) $(CXXFLAGS) $(SRC) $(MAIN_SRC) $(SPOT_FLAGS) $(RAYLIB_FLAGS) -o $(MAIN_TARGET).out
 
 sim: $(SRC) $(SIM_SRC)
 	$(CXX) $(CXXFLAGS) $(SRC) $(SIM_SRC) $(SPOT_FLAGS) -o $(SIM_TARGET).out

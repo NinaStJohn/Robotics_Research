@@ -58,9 +58,11 @@ xdg-open automaton.pdf
 
 The makefile right now has a sim and a test flag. Use the test to see if spot is working. Sim is our grid_world simualtion.
 
-Visulization for grid world
+Visulization for LTL
 ```
 sudo apt install graphviz xdot
 ./test 2> aut.dot
 xdot aut.dot
 ```
+Visulization for Gridworld (raylib)
+https://github.com/raysan5/raylib/wiki/Working-on-GNU-Linux
