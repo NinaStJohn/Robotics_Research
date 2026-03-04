@@ -19,6 +19,22 @@ void Robot::set_position(int x, int y) {
     pos_ = {x, y};
 }
 
+// set limits for ability to access or not access
+// right now assume that you can access everything
+// make make restricted areas where access is NOT assumed? 
+void Robot::set_constraints(
+    const std::string& ap
+){
+    constraints_.insert(ap);
+}
+
+void Robot::clear_constraints(
+    void
+){
+    constraints_.clear();
+}
+
+
 // defining the turtlebot action set (static storage)
 
 const std::vector<Robot::Action> Turtlebot::kActions_ = {

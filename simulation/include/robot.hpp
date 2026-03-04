@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <utility>
+#include "grid_world.hpp"
 
 class Robot {
     public:
@@ -21,11 +22,18 @@ class Robot {
         Pos position() const;
         void set_position(int x, int y);
 
+        void set_constraints(const std::string& ap);
+        void clear_constraints();
+
         // note: const ref return, and spelling
         virtual const std::vector<Action>& actions() const = 0;
 
+        bool can_enter(const GridWorld& word, Pos pos);
+
     protected:
         Pos pos_;
+        std::unordered_set<std::string> constraints_;
+
 };
 
 
