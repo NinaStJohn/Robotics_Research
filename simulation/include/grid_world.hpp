@@ -2,33 +2,46 @@
 #include <vector>
 #include <utility>
 #include <unordered_map>
+#include <unordered_set>
 #include <cstdint>
 #include <string>
+#include "types.hpp"
 
 class GridWorld {
     public:
-        using Pos = std::pair<int,int>;
-
         GridWorld(int w, int h);
 
         int width() const;
         int height() const;
 
-        bool in_bounds(int x, int y) const;
-        void set_blocked(int x, int y, bool blocked = true);
-        bool is_blocked(int x, int y) const;
+        // occupancy grid
+        bool in_bounds(Pos pos) const;
+        void set_blocked(Pos pos, bool blocked = true);
+        bool is_blocked(Pos pos) const;
+        // for vis get layer
+        const std::vector<std::vector<unsigned char>>& blocked() const;
 
-        std::vector<Pos> neighbors4(int x, int y) const;
+        // neighbors
+        std::vector<Pos> neighbors4(Pos pos) const;
 
-        // label thins
+        // Label grid
         void define_label(const std::string& name);
         void set_label(const Pos& pnt, const std::string& name, bool value);
         bool has_label(const Pos& pnt, const std::string& name) const;
         const std::unordered_map<std::string,int>& label_map() const;
         std::vector<std::string> label_names() const;
+        // for vis get layer
+        const std::vector<std::uint64_t>& labels() const;
 
-        // may need for label
+        // may need for label, per-cell mask
         std::uint64_t label_mask(int x, int y) const;
+
+        // make the pos thing consistant
+        // bool in_bounds(Pos p) const;
+        // void set_blocked(Pos p, bool blocked=true);
+        // bool is_blocked(Pos p) const;
+        // std::uint64_t label_mask(Pos p) const;
+
 
     private:
         int w_, h_;

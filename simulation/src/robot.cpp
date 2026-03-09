@@ -7,16 +7,14 @@
 */
 
 #include "robot.hpp"
-#include <vector>
-#include <utility>
 
 // public returns
 Robot::Pos Robot::position() const {
     return pos_;
 }
 
-void Robot::set_position(int x, int y) {
-    pos_ = {x, y};
+void Robot::set_position(Pos pos) {
+    pos_ = pos;
 }
 
 // set limits for ability to access or not access
@@ -34,6 +32,12 @@ void Robot::clear_constraints(
     constraints_.clear();
 }
 
+// // temporary simple policy:
+// bool Robot::can_enter(const GridWorld& world, Pos pos) const {
+//     (void)world;
+//     (void)pos;
+//     return true;
+// }
 
 // defining the turtlebot action set (static storage)
 

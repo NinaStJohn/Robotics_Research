@@ -47,6 +47,7 @@
 #include <bddx.h>
 
 #include <algorithm>
+#include <unordered_map>
 
 // Private functions
 static spot::twa_graph_ptr world_to_ts(
@@ -62,7 +63,7 @@ static spot::twa_graph_ptr ltl_to_nba(
 
 static bdd label_of_cell(
     const GridWorld& world,
-    const GridWorld::Pos& p,
+    const Pos& p,
     const std::unordered_map<std::string,int>& ap_index
 );
 
@@ -151,7 +152,7 @@ static spot::twa_graph_ptr ltl_to_nba(
 static std::string apset_string_for_cell(
     const GridWorld& world, int x, int y
 ){
-    GridWorld::Pos p = {x, y};
+    Pos p{x, y};
     std::vector<std::string> names = world.label_names();
 
     // Optional but recommended: deterministic order for hand-checking.
@@ -197,7 +198,7 @@ static spot::twa_graph_ptr world_to_ts(
     int x, y;
     for (y = 0; y < h; ++y) {
         for (x = 0; x < w; ++x) {
-            if (!world.is_blocked(x, y)) {
+            if (!world.is_blocked({x, y})) {
                 // label the state names
                 int sid = ts->new_state();
 
@@ -217,10 +218,10 @@ static spot::twa_graph_ptr world_to_ts(
 
     // 3) Init state from robot start position
     Robot::Pos start = robot.position();
-    int sx = start.first;
-    int sy = start.second;
+    int sx = start.x;
+    int sy = start.y;
 
-    if (!world.in_bounds(sx, sy) || world.is_blocked(sx, sy)) {
+    if (!world.in_bounds({sx, sy}) || world.is_blocked({sx, sy})) {
         std::cerr << "world_to_ts(): robot start is out of bounds or blocked\n";
         return spot::twa_graph_ptr(); // null
     }
@@ -256,8 +257,8 @@ static spot::twa_graph_ptr world_to_ts(
                 else if (a == Robot::Action::Down)  ny = y + 1;
                 else if (a == Robot::Action::Stay)  { /* no change */ }
 
-                if (!world.in_bounds(nx, ny)) continue;
-                if (world.is_blocked(nx, ny)) continue;
+                if (!world.in_bounds({nx, ny})) continue;
+                if (world.is_blocked({nx, ny})) continue;
 
                 int t = id[static_cast<std::size_t>(ny * w + nx)];
                 if (t < 0) continue;
@@ -265,7 +266,7 @@ static spot::twa_graph_ptr world_to_ts(
                 // Label edges with destination state's label (for product)
                 bdd actbdd = action_label_bdd(a, act_ap);
                 // destination cell
-                GridWorld::Pos dstpos = {nx, ny};
+                Pos dstpos = {nx, ny};
                 // world valuation at destination             
                 bdd stbdd = label_of_cell(world, dstpos, ap_index); 
 
@@ -284,7 +285,7 @@ static spot::twa_graph_ptr world_to_ts(
 // label
 static bdd label_of_cell(
     const GridWorld& world,
-    const GridWorld::Pos& p,
+    const Pos& p,
     const std::unordered_map<std::string,int>& ap_index
 ){
     bdd out = bddtrue;

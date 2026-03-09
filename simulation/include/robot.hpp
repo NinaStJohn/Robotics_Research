@@ -1,11 +1,12 @@
 #pragma once
 #include <vector>
+#include <unordered_set>
 #include <utility>
-#include "grid_world.hpp"
+#include <string>
+#include "types.hpp"
 
 class Robot {
     public:
-        using Pos = std::pair<int,int>;
 
         enum class Action {
             Stay,
@@ -15,12 +16,14 @@ class Robot {
             Down
             // Later: Open, Close, Pickup, Drop...
         };
+        using Pos = ::Pos;
 
-        Robot(int x, int y) : pos_{x,y} {}
+        // init like dis
+        Robot(Pos pos) : pos_(pos) {}
         virtual ~Robot() = default;
 
         Pos position() const;
-        void set_position(int x, int y);
+        void set_position(Pos pos);
 
         void set_constraints(const std::string& ap);
         void clear_constraints();
@@ -28,7 +31,7 @@ class Robot {
         // note: const ref return, and spelling
         virtual const std::vector<Action>& actions() const = 0;
 
-        bool can_enter(const GridWorld& word, Pos pos);
+        // bool can_enter(const GridWorld& world, Pos pos) const;
 
     protected:
         Pos pos_;
@@ -46,7 +49,7 @@ class Robot {
 
 class Turtlebot : public Robot {
     public:
-        using Robot::Robot; // inherits Robot(int,int)
+        using Robot::Robot; // inherits Robot(Pos)
 
         const std::vector<Action>& actions() const override;
 
