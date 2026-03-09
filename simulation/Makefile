@@ -30,4 +30,4 @@ test: $(TEST_SRC)
 	$(CXX) $(CXXFLAGS) $(TEST_SRC) $(SPOT_FLAGS) -o $(TEST_TARGET).out
 
 clean:
-	rm -f $(MAIN_TARGET) $(SIM_TARGET) $(TEST_TARGET)
+	rm -f $(MAIN_TARGET).out $(SIM_TARGET).out $(TEST_TARGET).out
