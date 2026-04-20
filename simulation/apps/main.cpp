@@ -31,27 +31,32 @@ int main() {
     // world.set_label({0,1}, "c", true);
     // world.set_label({1,0}, "d", true);
 
-    GridWorld world(10, 10);
-    world.set_label({0,0}, "a", true);
-    world.set_label({2,8}, "b", true);
+    // unhardcode 'b'
+    // DFS on strongly connected comp?
+    // make solution cycle
 
-    world.set_blocked({1,1}, true);
-    world.set_blocked({1,2}, true);
-    world.set_blocked({1,3}, true);
-    world.set_blocked({0,3}, true);
+    // LTL formula 
+    std::string ltl = "G(a -> Fd)";
+    
+    GridWorld world(3, 3);
+    Turtlebot bot1({0,0});
+    world.set_label({0,0}, "a", true);
+    world.set_label({2,2}, "d", true);
+
+    // world.set_blocked({1,1}, true);
+    // world.set_blocked({1,2}, true);
+    // world.set_blocked({1,3}, true);
+    // world.set_blocked({0,3}, true);
 
     
-    world.set_blocked({1,1}, true);
-    world.set_blocked({2,2}, true);
-    world.set_blocked({3,3}, true);
-    world.set_blocked({4,4}, true);
+    // world.set_blocked({1,1}, true);
+    // world.set_blocked({2,2}, true);
+    // world.set_blocked({3,3}, true);
+    // world.set_blocked({4,4}, true);
 
 
     // world.setblocked(1.0);
-    Turtlebot bot1({0,0});
 
-    // LTL formula 
-    std::string ltl = "G(a -> Fb)";
 
     // LTL graph
     ProductBundle bundle = build_product_from_world_robot_ltl(world, bot1, ltl);
@@ -91,7 +96,7 @@ int main() {
     }
 
     // get path using astar
-    std::vector<Pos> path = astar_find_path(wpa, world);;
+    std::vector<Pos> path = astar_find_path(wpa);;
 
     std::cout << "Path length: " << path.size() << "\n";
     for (const auto& p : path)

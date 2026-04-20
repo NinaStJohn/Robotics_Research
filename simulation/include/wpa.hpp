@@ -32,6 +32,10 @@ public:
     std::vector<std::pair<unsigned, double>>
     neighbors(unsigned state_id) const;
 
+    // updated neighbor function that also return via_accepting bool
+    struct Neighbor { unsigned dst; double cost; bool accepting; };
+    std::vector<Neighbor> neighbors_ext(unsigned state_id) const;
+
     // True if state_id is an accepting state in the product automaton.
     bool is_accepting(unsigned state_id) const;
 

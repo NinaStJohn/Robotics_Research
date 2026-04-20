@@ -270,7 +270,7 @@ static spot::twa_graph_ptr world_to_ts(
                 if (t < 0) continue;
  
                 bdd actbdd = action_label_bdd(a, out_act_ap);
-                bdd stbdd  = label_of_cell(world, {nx, ny}, out_world_ap);
+                bdd stbdd  = label_of_cell(world, {x, y}, out_world_ap); // destination cell
                 ts->new_edge(static_cast<unsigned>(s),
                              static_cast<unsigned>(t),
                              bdd_and(actbdd, stbdd));

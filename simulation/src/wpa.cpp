@@ -45,6 +45,23 @@ unsigned WPA::init_state() const {
     return bundle_.prod->get_init_state_number();
 }
 
+std::vector<WPA::Neighbor> 
+WPA::neighbors_ext(unsigned state_id) const
+{
+    std::vector<WPA::Neighbor> out;
+
+    for (const spot::twa_graph::edge_storage_t& e : bundle_.prod->out(state_id)) {
+        unsigned idx = bundle_.prod->edge_number(e);
+        std::cout << "  edge to " << e.dst << " acc=" << e.acc << "\n";
+        out.push_back({ e.dst, weights_.at(idx), is_accepting(e.dst) });
+    }
+
+    std::cout << "prod acc condition: num_sets=" 
+          << bundle_.prod->acc().num_sets() << "\n";
+
+    return out;
+}
+
 std::vector<std::pair<unsigned, double>>
 WPA::neighbors(unsigned state_id) const
 {
@@ -66,11 +83,8 @@ bool WPA::is_accepting(unsigned state_id) const {
     // So we check if any *incoming* edge to state_id carries the mark
     // by checking all edges of all predecessors.
     // TODO: precompute predecessor map for performance at scale.
-    for (unsigned s = 0; s < bundle_.prod->num_states(); ++s) {
-        for (const auto& e : bundle_.prod->out(s)) {
-            if (e.dst == state_id && e.acc.has(0))
-                return true;
-        }
+    for (const spot::twa_graph::edge_storage_t& e : bundle_.prod->out(state_id)) {
+        if (e.acc.has(0)) return true;
     }
     return false;
 }

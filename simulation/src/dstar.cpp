@@ -33,7 +33,7 @@ struct Node {
     double   f;       // g + h
     double   g;       // cost from init
     unsigned state;
-
+    bool     via_accepting;
     // min-heap: smallest f first
     bool operator>(const Node& o) const { return f > o.f; }
 };
@@ -56,13 +56,16 @@ struct Node {
 //       incremental search that updates edge costs on environment
 //       change rather than replanning from scratch.
 // ------------------------------------------------------------------
-std::vector<Pos> astar_find_path(const WPA& wpa, const GridWorld& world)
+std::vector<Pos> astar_find_path(const WPA& wpa)
 {
     unsigned init = wpa.init_state();
 
-    // Early out: start is already accepting
-    if (wpa.is_accepting(init)) {
-        return { wpa.pos_of(init) };
+    // DEBUG
+    std::cout << "init state: " << init << "\n";
+    for (const WPA::Neighbor& nb : wpa.neighbors_ext(init)) {
+        std::cout << "  neighbor dst=" << nb.dst
+                << " cost=" << nb.cost
+                << " accepting=" << nb.accepting << "\n";
     }
 
     // g-cost map
@@ -94,9 +97,7 @@ std::vector<Pos> astar_find_path(const WPA& wpa, const GridWorld& world)
         if (it != g_cost.end() && cur.g > it->second)
             continue;
 
-        unsigned nba_component = wpa.nba_state_of(cur.state);
-        Pos p = wpa.pos_of(cur.state);
-        if (nba_component == 0 && world.has_label(p, "b")) {
+        if (cur.via_accepting) {
             // Reconstruct path of product states -> Pos
             std::vector<Pos> path;
             unsigned s = cur.state;
@@ -119,18 +120,19 @@ std::vector<Pos> astar_find_path(const WPA& wpa, const GridWorld& world)
             return deduped;
         }
 
-        for (const auto& [dst, cost] : wpa.neighbors(cur.state)) {
-            double tentative_g = cur.g + cost;
+        for (const WPA::Neighbor& nb : wpa.neighbors_ext(cur.state)) {
+            double tentative_g = cur.g + nb.cost;
+            std::unordered_map<unsigned, double>::iterator it = g_cost.find(nb.dst);
 
-            auto it = g_cost.find(dst);
             if (it != g_cost.end() && tentative_g >= it->second)
                 continue;
 
-            g_cost[dst]  = tentative_g;
-            parent[dst]  = cur.state;
+            g_cost[nb.dst] = tentative_g;
+            parent[nb.dst] = cur.state;
 
-            double f = tentative_g + h(wpa.pos_of(dst));
-            open.push({ f, tentative_g, dst });
+            double f = tentative_g + h(wpa.pos_of(nb.dst));
+            
+            open.push({ f, tentative_g, nb.dst, nb.accepting });
         }
     }
 
