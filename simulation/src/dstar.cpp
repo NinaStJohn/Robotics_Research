@@ -139,3 +139,25 @@ std::vector<Pos> astar_find_path(const WPA& wpa)
     std::cerr << "astar_find_path(): no accepting state reachable\n";
     return {};
 }
+
+
+/*
+// this takes in a WPA and a accepting state
+// it connected the nodes that lead to the accepting state to q_img
+// then you find q_img from q_acc
+// the solution is a cycle, return path
+find_cycle(WPA, q_acc):
+    q_imag = prod->num_states()   // sentinel ID beyond real states
+
+    run A* from q_acc:
+        when expanding state s:
+            for each real neighbor n of s:
+                enqueue n normally
+            if wpa.is_accepting(s):
+                enqueue q_imag with cost g[s] + 0   // free edge
+
+        when q_imag is popped:
+            done — reconstruct path back to q_acc
+            drop q_imag from the end
+            return path   // this is the cycle
+*/

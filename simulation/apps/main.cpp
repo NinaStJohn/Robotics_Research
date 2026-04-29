@@ -31,17 +31,16 @@ int main() {
     // world.set_label({0,1}, "c", true);
     // world.set_label({1,0}, "d", true);
 
-    // unhardcode 'b'
     // DFS on strongly connected comp?
     // make solution cycle
 
     // LTL formula 
     std::string ltl = "G(a -> Fd)";
     
-    GridWorld world(3, 3);
+    GridWorld world(5, 5);
     Turtlebot bot1({0,0});
     world.set_label({0,0}, "a", true);
-    world.set_label({2,2}, "d", true);
+    world.set_label({3,3}, "d", true);
 
     // world.set_blocked({1,1}, true);
     // world.set_blocked({1,2}, true);
@@ -85,15 +84,15 @@ int main() {
 
     // DEBUG: dump NBA structure before product
     // remove after confirming NBA acceptance structure
-    spot::twa_graph_ptr nba_debug = spot::translator(spot::make_bdd_dict()).run(
-        spot::parse_infix_psl("G(a -> Fb)").f
-    );
-    std::cout << "NBA states: " << nba_debug->num_states() << "\n";
-    for (unsigned s = 0; s < nba_debug->num_states(); ++s) {
-        std::cout << "  nba state " << s << "\n";
-        for (const auto& e : nba_debug->out(s))
-            std::cout << "    -> " << e.dst << " acc=" << e.acc << "\n";
-    }
+    // spot::twa_graph_ptr nba_debug = spot::translator(spot::make_bdd_dict()).run(
+    //     spot::parse_infix_psl("G(a -> Fb)").f
+    // );
+    // std::cout << "NBA states: " << nba_debug->num_states() << "\n";
+    // for (unsigned s = 0; s < nba_debug->num_states(); ++s) {
+    //     std::cout << "  nba state " << s << "\n";
+    //     for (const auto& e : nba_debug->out(s))
+    //         std::cout << "    -> " << e.dst << " acc=" << e.acc << "\n";
+    // }
 
     // get path using astar
     std::vector<Pos> path = astar_find_path(wpa);;
