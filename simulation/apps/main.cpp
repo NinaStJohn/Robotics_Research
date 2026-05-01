@@ -35,23 +35,23 @@ int main() {
     // make solution cycle
 
     // LTL formula 
-    std::string ltl = "G(a -> Fd)";
+    std::string ltl = "G(a -> Fb) & G(b -> Fa)";
     
-    GridWorld world(5, 5);
+    GridWorld world(6, 6);
     Turtlebot bot1({0,0});
     world.set_label({0,0}, "a", true);
-    world.set_label({3,3}, "d", true);
+    world.set_label({5,5}, "b", true);
 
-    // world.set_blocked({1,1}, true);
-    // world.set_blocked({1,2}, true);
-    // world.set_blocked({1,3}, true);
-    // world.set_blocked({0,3}, true);
+    world.set_blocked({1,1}, true);
+    world.set_blocked({1,2}, true);
+    world.set_blocked({1,3}, true);
+    world.set_blocked({0,3}, true);
 
     
-    // world.set_blocked({1,1}, true);
-    // world.set_blocked({2,2}, true);
-    // world.set_blocked({3,3}, true);
-    // world.set_blocked({4,4}, true);
+    world.set_blocked({1,1}, true);
+    world.set_blocked({2,2}, true);
+    world.set_blocked({3,3}, true);
+    world.set_blocked({4,4}, true);
 
 
     // world.setblocked(1.0);
@@ -94,15 +94,29 @@ int main() {
     //         std::cout << "    -> " << e.dst << " acc=" << e.acc << "\n";
     // }
 
-    // get path using astar
-    std::vector<Pos> path = astar_find_path(wpa);;
+    // DEBUG: dump full product automaton
+    std::cout << "=== product states ===\n";
+    for (unsigned s = 0; s < wpa.prod()->num_states(); ++s) {
+        std::cout << "  state=" << s
+                  << " nba=" << wpa.nba_state_of(s)
+                  << " pos=(" << wpa.pos_of(s).x << "," << wpa.pos_of(s).y << ")"
+                  << " accepting=" << wpa.is_accepting(s) << "\n";
+    }
+    std::cout << "=== init=" << wpa.init_state() << " ===\n";
 
-    std::cout << "Path length: " << path.size() << "\n";
-    for (const auto& p : path)
+    // get lasso (prefix + cycle) using astar
+    LassoResult lasso = astar_find_path(wpa);
+
+    std::cout << "Prefix length: " << lasso.prefix.size() << "\n";
+    for (const Pos& p : lasso.prefix)
         std::cout << "  (" << p.x << ", " << p.y << ")\n";
 
-    // grid world vizulizer
-    static_visualizer(world, std::vector<std::vector<Pos>>{path});
+    std::cout << "Cycle length: " << lasso.cycle.size() << "\n";
+    for (const Pos& p : lasso.cycle)
+        std::cout << "  (" << p.x << ", " << p.y << ")\n";
+
+    // grid world vizulizer — prefix in one color, cycle in another
+    static_visualizer(world, std::vector<std::vector<Pos>>{lasso.prefix, lasso.cycle});
 
     return 0;
 }

@@ -52,12 +52,8 @@ WPA::neighbors_ext(unsigned state_id) const
 
     for (const spot::twa_graph::edge_storage_t& e : bundle_.prod->out(state_id)) {
         unsigned idx = bundle_.prod->edge_number(e);
-        std::cout << "  edge to " << e.dst << " acc=" << e.acc << "\n";
         out.push_back({ e.dst, weights_.at(idx), is_accepting(e.dst) });
     }
-
-    std::cout << "prod acc condition: num_sets=" 
-          << bundle_.prod->acc().num_sets() << "\n";
 
     return out;
 }
