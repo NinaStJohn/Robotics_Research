@@ -16,6 +16,7 @@
 
 
 // private functions
+bool path_is_blocked(const std::vector<Pos>& path, const GridWorld& world);
 
 // helper
 static int idx(int x, int y, int w) { return y * w + x; }
@@ -37,7 +38,7 @@ flatten_path(const std::vector<std::vector<Pos>>& segments)
 }
 
 void dynamic_visulizer(
-    const GridWorld& world,
+    GridWorld& world,
     const std::vector<std::vector<Pos>>& path_segments
 ){
     const int w = world.width();
@@ -61,6 +62,19 @@ void dynamic_visulizer(
 
     const int cycle_start = (int)path_segments[0].size();
     while (!WindowShouldClose()) {
+
+        // check for click updates - adding/removing obstacles
+        if(IsMouseButtonPressed(MOUSE_BUTTON_LEFT)){
+            int mouse_x = GetMouseX();
+            int mouse_y = GetMouseY();
+            int gx = (mouse_x - margin) / cellSize;
+            int gy = (mouse_y - margin) / cellSize;
+            if (world.in_bounds({gx, gy})) {
+                world.set_blocked({gx, gy}, !world.is_blocked({gx, gy}));
+            }
+        }
+
+
     
         // draw everything from scratch
         BeginDrawing();
@@ -79,13 +93,21 @@ void dynamic_visulizer(
             }
         }
 
+        bool needs_replan = path_is_blocked(path, world);
+
         // Draw path overlay
         for (const Pos& p : path) {
             if (!world.in_bounds({p.x, p.y})) continue;
 
             const int px = margin + p.x * cellSize;
             const int py = margin + p.y * cellSize;
-            DrawRectangle(px, py, cellSize, cellSize, Color{197, 247, 250, 128});
+            if (needs_replan) {
+                // make red
+                DrawRectangle(px, py, cellSize, cellSize, Color{252, 182, 182, 128});
+            } else {
+                DrawRectangle(px, py, cellSize, cellSize, Color{197, 247, 250, 128});
+            }
+
         }
 
 
@@ -102,7 +124,9 @@ void dynamic_visulizer(
         }
 
         // wrap path and timing things
-        elapsed += GetFrameTime();
+        if (!needs_replan){
+            elapsed += GetFrameTime();
+        }
         if (elapsed >= step_interval) {
             step_index++;
             if (step_index >= (int)path.size()) step_index = cycle_start;
@@ -114,13 +138,22 @@ void dynamic_visulizer(
         const Pos& curr = path[step_index];
         DrawCircle(margin + curr.x * cellSize + cellSize/2,
                 margin + curr.y * cellSize + cellSize/2,
-                cellSize/3, Color{220, 0, 0, 255});
+                cellSize/3, Color{252, 246, 182, 255});
 
         EndDrawing();
     }
     CloseWindow();
 }
 
+// check to see if path blocked
+bool path_is_blocked(
+    const std::vector<Pos>& path, 
+    const GridWorld& world) {
+    for (const Pos& p : path) {
+        if (world.is_blocked(p)) return true;
+    }
+    return false;
+}
 
 
 void static_visualizer(

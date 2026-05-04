@@ -15,6 +15,6 @@ void static_visualizer(
 // void dynamic_visulizer(std::vector<std::vector<Pos>> path );
 
 void dynamic_visulizer(
-    const GridWorld& world,
+    GridWorld& world,
     const std::vector<std::vector<Pos>>& path_segments
 );

@@ -67,37 +67,6 @@ int main() {
     // wrap in WPA for weighted search
     WPA wpa(std::move(bundle));
 
-    // for (unsigned s = 0; s < wpa.prod()->num_states(); ++s) {
-    //     unsigned nba_state = s % wpa.nba_size();
-    //     std::cout << "state " << s << " nba=" << nba_state
-    //               << " pos(" << wpa.pos_of(s).x << "," << wpa.pos_of(s).y << ")"
-    //               << " accepting: " << wpa.is_accepting(s) << "\n";
-    // }
-
-    // unsigned init = wpa.init_state();
-    // std::cout << "init state: " << init << "\n";
-    // std::cout << "is_accepting(init): " << wpa.is_accepting(init) << "\n";
-    // for (const auto& [dst, cost] : wpa.neighbors(init))
-    //     std::cout << "  neighbor: " << dst << " cost: " << cost << "\n";
-
-    // for (unsigned s = 0; s < wpa.init_state() + 5; ++s) {
-    //     std::cout << "state " << s << " accepting: " << wpa.is_accepting(s) << "\n";
-    //     for (const auto& [dst, cost] : wpa.neighbors(s))
-    //         std::cout << "  -> " << dst << "\n";
-    // }
-
-    // DEBUG: dump NBA structure before product
-    // remove after confirming NBA acceptance structure
-    // spot::twa_graph_ptr nba_debug = spot::translator(spot::make_bdd_dict()).run(
-    //     spot::parse_infix_psl("G(a -> Fb)").f
-    // );
-    // std::cout << "NBA states: " << nba_debug->num_states() << "\n";
-    // for (unsigned s = 0; s < nba_debug->num_states(); ++s) {
-    //     std::cout << "  nba state " << s << "\n";
-    //     for (const auto& e : nba_debug->out(s))
-    //         std::cout << "    -> " << e.dst << " acc=" << e.acc << "\n";
-    // }
-
     // DEBUG: dump full product automaton
     std::cout << "=== product states ===\n";
     for (unsigned s = 0; s < wpa.prod()->num_states(); ++s) {
