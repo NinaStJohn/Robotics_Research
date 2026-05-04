@@ -36,6 +36,93 @@ flatten_path(const std::vector<std::vector<Pos>>& segments)
     return out;
 }
 
+void dynamic_visulizer(
+    const GridWorld& world,
+    const std::vector<std::vector<Pos>>& path_segments
+){
+    const int w = world.width();
+    const int h = world.height();
+
+    const int cellSize = 80;
+    const int margin   = 20;
+
+    const int screenW = margin * 2 + w * cellSize;
+    const int screenH = margin * 2 + h * cellSize;
+
+    InitWindow(screenW, screenH, "Path Trace");
+    SetTargetFPS(60);
+
+    const auto path = flatten_path(path_segments);
+
+    int step_index = 0;
+    float elapsed = 0.0f;
+    const float step_interval = 0.5f;
+
+
+    const int cycle_start = (int)path_segments[0].size();
+    while (!WindowShouldClose()) {
+    
+        // draw everything from scratch
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+        // Draw occupancy + grid
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const int px = margin + x * cellSize;
+                const int py = margin + y * cellSize;
+
+                if (world.is_blocked({x,y})) {
+                    DrawRectangle(px, py, cellSize, cellSize, DARKGRAY);
+                }
+                DrawRectangleLines(px, py, cellSize, cellSize, LIGHTGRAY);
+            }
+        }
+
+        // Draw path overlay
+        for (const Pos& p : path) {
+            if (!world.in_bounds({p.x, p.y})) continue;
+
+            const int px = margin + p.x * cellSize;
+            const int py = margin + p.y * cellSize;
+            DrawRectangle(px, py, cellSize, cellSize, Color{197, 247, 250, 128});
+        }
+
+
+        // Highlight start/end
+        if (!path.empty()) {
+            const Pos s = path.front();
+            const Pos g = path.back();
+
+            DrawRectangle(margin + s.x * cellSize, margin + s.y * cellSize,
+                            cellSize, cellSize, Color{0, 200, 0, 100});   // start
+
+            DrawRectangle(margin + g.x * cellSize, margin + g.y * cellSize,
+                            cellSize, cellSize, Color{220, 0, 0, 100});   // goal
+        }
+
+        // wrap path and timing things
+        elapsed += GetFrameTime();
+        if (elapsed >= step_interval) {
+            step_index++;
+            if (step_index >= (int)path.size()) step_index = cycle_start;
+            elapsed = 0.0f;
+        }
+
+
+        // current
+        const Pos& curr = path[step_index];
+        DrawCircle(margin + curr.x * cellSize + cellSize/2,
+                margin + curr.y * cellSize + cellSize/2,
+                cellSize/3, Color{220, 0, 0, 255});
+
+        EndDrawing();
+    }
+    CloseWindow();
+}
+
+
+
 void static_visualizer(
     const GridWorld& world,
     const std::vector<std::vector<Pos>>& path_segments
@@ -97,7 +184,4 @@ void static_visualizer(
 
     CloseWindow();
 }
-
-void vis_multi_run();
-
 

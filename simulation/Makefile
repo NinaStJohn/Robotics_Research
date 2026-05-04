@@ -24,7 +24,7 @@ main: $(SRC) $(MAIN_SRC)
 	$(CXX) $(CXXFLAGS) $(SRC) $(MAIN_SRC) $(SPOT_FLAGS) $(RAYLIB_FLAGS) -o $(MAIN_TARGET).out
 
 sim: $(SRC) $(SIM_SRC)
-	$(CXX) $(CXXFLAGS) $(SRC) $(SIM_SRC) $(SPOT_FLAGS) -o $(SIM_TARGET).out
+	$(CXX) $(CXXFLAGS) $(SRC) $(SIM_SRC) $(SPOT_FLAGS) $(RAYLIB_FLAGS) -o $(SIM_TARGET).out
 
 test: $(TEST_SRC)
 	$(CXX) $(CXXFLAGS) $(TEST_SRC) $(SPOT_FLAGS) -o $(TEST_TARGET).out

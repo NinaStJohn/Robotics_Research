@@ -13,3 +13,8 @@ void static_visualizer(
 
 // updates graph to run in real time - something
 // void dynamic_visulizer(std::vector<std::vector<Pos>> path );
+
+void dynamic_visulizer(
+    const GridWorld& world,
+    const std::vector<std::vector<Pos>>& path_segments
+);
