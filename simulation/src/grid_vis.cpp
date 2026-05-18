@@ -134,11 +134,11 @@ void dynamic_visulizer(
         }
 
 
-        // current
+        // current 
         const Pos& curr = path[step_index];
         DrawCircle(margin + curr.x * cellSize + cellSize/2,
                 margin + curr.y * cellSize + cellSize/2,
-                cellSize/3, Color{252, 246, 182, 255});
+                cellSize/3, Color{247, 235, 106, 255}); // 247, 235, 106
 
         EndDrawing();
     }

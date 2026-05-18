@@ -14,6 +14,29 @@
 #include "dstar.hpp"
 
 // ------------------------------------------------------------------
+// Private function declarations
+// ------------------------------------------------------------------
+
+// D* Lite helpers
+static DStarKey calculate_key(
+    const DStarPlanner& planner,
+    unsigned s, unsigned sstart
+);
+static void update_vertex(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    unsigned u,
+    unsigned sgoal
+);
+static void compute_shortest_path(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    const std::unordered_map<unsigned, std::vector<unsigned>>& pred_map,
+    unsigned sstart,
+    unsigned sgoal
+);
+
+// ------------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------------
 
@@ -29,6 +52,21 @@ struct Node {
     unsigned state;
     bool operator>(const Node& o) const { return f > o.f; }
 };
+
+struct PathResult {
+    std::vector<unsigned> path;
+    double                cost;
+};
+
+static double get_g(const std::unordered_map<unsigned, double>& m, unsigned s) {
+    std::unordered_map<unsigned, double>::const_iterator it = m.find(s);
+    return it == m.end() ? std::numeric_limits<double>::infinity() : it->second;
+}
+
+static double get_rhs(const std::unordered_map<unsigned, double>& m, unsigned s) {
+    std::unordered_map<unsigned, double>::const_iterator it = m.find(s);
+    return it == m.end() ? std::numeric_limits<double>::infinity() : it->second;
+}
 
 // ------------------------------------------------------------------
 // to_pos
@@ -53,20 +91,213 @@ static std::vector<Pos> to_pos(const WPA& wpa, const std::vector<unsigned>& ids)
 }
 
 // ------------------------------------------------------------------
-// astar_impl
+// DStar planner
 //
-// Prefix mode (is_cycle=false):
-//   Runs A* from `start` to q_imag. Every accepting state gets a free
-//   (cost 0) edge to q_imag, discovered on the fly.
-//
-// Cycle mode (is_cycle=true):
-//   Runs A* from `start` back to `start`. Edges whose destination IS
-//   `start` are intercepted and redirected to q_imag so that the same
-//   reconstruction logic applies and parent[start] is never overwritten.
-//
-// Returns the path as product state IDs with q_imag excluded.
+// update the product graph (and ts?) to reflect changes
 // ------------------------------------------------------------------
-static std::vector<unsigned> astar_impl(const WPA& wpa, unsigned start, bool is_cycle = false)
+
+DStarPlanner make_planner(
+    const WPA& wpa,
+    ReplanMode mode
+){
+    DStarPlanner planner;
+    unsigned init = wpa.init_state();
+    planner.s_imag = wpa.prod()->num_states();
+
+    // loop over all product states
+    for (unsigned s = 0; s < wpa.prod()->num_states(); s++){
+        if (wpa.is_accepting(s)){
+            // cycle search from this accepting state
+            PathResult result = astar_cycle_search(wpa, s);
+            if (!result.path.empty()) {
+                planner.cycle_path[s] = result.path;
+                planner.cycle_cost[s] = result.cost;
+            }
+        }
+    }
+
+    // build reverse graph
+    // this avoids messing with spot internals
+    std::unordered_map<unsigned, std::vector<unsigned>> pred_map;
+    for (unsigned s = 0; s < wpa.prod()->num_states(); s++) {
+        for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
+            pred_map[nb.dst].push_back(s);
+        }
+    }
+
+    // init D* tables
+    // g and rhs == inf bc uninit
+    planner.rhs[planner.s_imag] = 0;
+    planner.km = 0;
+
+    // insert s_imag with U into key (0,0)
+    planner.U.push({{0.0, 0.0}, planner.s_imag});
+
+    // run D* lite
+    compute_shortest_path(wpa, planner, pred_map, init, planner.s_imag);
+
+    return planner;
+}
+
+std::vector<unsigned> dstar_replan(
+    const WPA& wpa,
+    unsigned current,
+    std::vector<unsigned> cycle,
+    unsigned blockage,
+    ReplanMode mode
+){
+    // FULL_RECOMPUTE: call make_planner again from scratch
+    // DSTAR_INCREMENTAL: call wpa.set_state_exit_weight(blockage, infinity),
+    // call UpdateVertex on all predecessors of blockage, re-run ComputeShortestPath with updated km
+}
+
+// ------------------------------------------------------------------
+// D* Lite implementation (based on Koenig & Likhachev 2002, Figure 4)
+// ------------------------------------------------------------------
+
+static DStarKey calculate_key(
+    const DStarPlanner& planner,
+    unsigned s,
+    unsigned sstart
+){
+    // key calculation (Figure 4, line 01')
+
+    double h = 0.0;   // TODO - replace with heuristic (eclusian)
+    double min_val = std::min(get_g(planner.g, s), get_g(planner.rhs, s));
+    double key1 = min_val + h + planner.km;
+    return {key1, min_val};
+}
+
+static void update_vertex(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    unsigned u,
+    unsigned sgoal
+){
+    double g_u = get_g(planner.g, u);
+    double rhs_u = get_g(planner.rhs, u);
+
+    // c++ does not haeve Update or Remove, so we use lazy deletion
+    // Always push with new key (duplicates are OK) & skip stale entries when popping
+    if (g_u != rhs_u) {
+        planner.U.push({calculate_key(planner, u, sgoal), u});
+    }
+}
+
+static void compute_shortest_path(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    const std::unordered_map<unsigned, std::vector<unsigned>>& pred_map,
+    unsigned sstart,
+    unsigned sgoal
+){
+    while (!planner.U.empty()) {
+        DStarEntry top_entry = planner.U.top();
+        DStarKey kold = top_entry.first;
+        unsigned u = top_entry.second;
+        planner.U.pop();
+
+        DStarKey knew = calculate_key(planner, u, sstart);
+
+        // Line 14-15: lazy deletion — re-insert if key is stale
+        if (kold < knew) {
+            planner.U.push({knew, u});
+            continue;
+        }
+
+        double g_u = get_g(planner.g, u);
+        double rhs_u = get_g(planner.rhs, u);
+
+        // Line 16-21: overconsistent (g > rhs) — propagate improvements
+        if (g_u > rhs_u) {
+            planner.g[u] = rhs_u;
+
+            // Update predecessors
+            auto pred_it = pred_map.find(u);
+            if (pred_it != pred_map.end()) {
+                for (unsigned s : pred_it->second) {
+                    if (s != sgoal) {
+                        // rhs(s) = min(rhs(s), c(s, u) + g(u))
+                        double cost_s_to_u = std::numeric_limits<double>::infinity();
+                        for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
+                            if (nb.dst == u) {
+                                cost_s_to_u = nb.cost;
+                                break;
+                            }
+                        }
+                        double new_rhs = std::min(get_rhs(planner.rhs, s), cost_s_to_u + g_u);
+                        planner.rhs[s] = new_rhs;
+                    }
+                    update_vertex(wpa, planner, s, sstart);
+                }
+            }
+        }
+        // Line 22-28: underconsistent (g < rhs) — revert and recalculate
+        else {
+            double gold = g_u;
+            planner.g[u] = std::numeric_limits<double>::infinity();
+
+            // Update predecessors of u and u itself
+            auto pred_it = pred_map.find(u);
+            std::vector<unsigned> affected;
+            if (pred_it != pred_map.end()) {
+                affected = pred_it->second;
+            }
+            affected.push_back(u);
+
+            for (unsigned s : affected) {
+                // Line 26: if this state's incoming cost from u changed
+                double cost_s_to_u = std::numeric_limits<double>::infinity();
+                for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
+                    if (nb.dst == u) {
+                        cost_s_to_u = nb.cost;
+                        break;
+                    }
+                }
+
+                if (get_rhs(planner.rhs, s) == cost_s_to_u + gold) {
+                    // Line 27: recompute rhs(s) from all successors
+                    if (s != sgoal) {
+                        double new_rhs = std::numeric_limits<double>::infinity();
+                        for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
+                            new_rhs = std::min(new_rhs, nb.cost + get_g(planner.g, nb.dst));
+                        }
+                        // Also consider weighted edge to sgoal if s is accepting
+                        if (wpa.is_accepting(s) && planner.cycle_cost.count(s) > 0) {
+                            new_rhs = std::min(new_rhs, planner.cycle_cost[s] + get_g(planner.g, sgoal));
+                        }
+                        planner.rhs[s] = new_rhs;
+                    }
+                    update_vertex(wpa, planner, s, sstart);
+                }
+            }
+        }
+
+        // Check termination condition
+        DStarKey key_start = calculate_key(planner, sstart, sstart);
+        double g_start = get_g(planner.g, sstart);
+        double rhs_start = get_rhs(planner.rhs, sstart);
+
+        if (planner.U.empty()) break;
+        DStarKey top_key = planner.U.top().first;
+        if (top_key >= key_start && g_start == rhs_start) break;
+    }
+}
+
+static LassoResult reconstruct_lasso(
+    const WPA& wpa,
+    const DStarPlanner& planner,
+    unsigned start
+){
+    // TODO: reconstruct lasso from D* tables
+    return {};
+}
+
+// ------------------------------------------------------------------
+// A* cycle search (for pre-computing cycle costs)
+// ------------------------------------------------------------------
+
+static PathResult astar_cycle_search(const WPA& wpa, unsigned start)
 {
     unsigned q_imag = wpa.prod()->num_states();
 
@@ -90,7 +321,7 @@ static std::vector<unsigned> astar_impl(const WPA& wpa, unsigned start, bool is_
                 s = parent.at(s);
             }
             std::reverse(path.begin(), path.end());
-            return path;
+            return {path, cur.g};
         }
 
         // stale entry check
@@ -102,7 +333,7 @@ static std::vector<unsigned> astar_impl(const WPA& wpa, unsigned start, bool is_
         for (const WPA::Neighbor& nb : wpa.neighbors_ext(cur.state)) {
             // cycle mode: intercept edges back to start — redirect to q_imag
             // so parent[start] is never overwritten and reconstruction stays clean
-            if (is_cycle && nb.dst == start) {
+            if (nb.dst == start) {
                 double cost_back = cur.g + nb.cost;
                 auto it3 = g_cost.find(q_imag);
                 if (it3 == g_cost.end() || cost_back < it3->second) {
@@ -122,13 +353,8 @@ static std::vector<unsigned> astar_impl(const WPA& wpa, unsigned start, bool is_
             open.push({tentative_g, tentative_g, nb.dst});
         }
 
-        // prefix only: free edge to q_imag for accepting states
-        if (!is_cycle && cur.state != start && wpa.is_accepting(cur.state)) {
-            std::cout << "[DBG] accepting: state=" << cur.state
-                      << " nba=" << wpa.nba_state_of(cur.state)
-                      << " pos=(" << wpa.pos_of(cur.state).x << ","
-                      << wpa.pos_of(cur.state).y << ")"
-                      << " g=" << cur.g << "\n";
+        // free edge to q_imag for accepting states
+        if (cur.state != start && wpa.is_accepting(cur.state)) {
             auto it3 = g_cost.find(q_imag);
             if (it3 == g_cost.end() || cur.g < it3->second) {
                 g_cost[q_imag] = cur.g;
@@ -142,40 +368,41 @@ static std::vector<unsigned> astar_impl(const WPA& wpa, unsigned start, bool is_
 }
 
 // ------------------------------------------------------------------
-// astar_find_path
+// astar_find_path (legacy interface)
 //
-// Entry point. Runs astar_impl twice:
+// Entry point. Runs astar_cycle_search twice:
 //   1. prefix: init_state -> first accepting state
-//   2. cycle:  that accepting state -> any accepting state (via q_imag)
+//   2. cycle:  that accepting state -> back to itself
 // ------------------------------------------------------------------
+
 LassoResult astar_find_path(const WPA& wpa)
 {
     unsigned init = wpa.init_state();
 
-    std::vector<unsigned> prefix_ids = astar_impl(wpa, init);
-    if (prefix_ids.empty()) {
+    PathResult prefix_result = astar_cycle_search(wpa, init);
+    if (prefix_result.path.empty()) {
         std::cerr << "astar_find_path(): no accepting state reachable from init\n";
         return {};
     }
 
     std::cout << "[DBG] prefix state IDs: ";
-    for (unsigned id : prefix_ids) std::cout << id << " ";
+    for (unsigned id : prefix_result.path) std::cout << id << " ";
     std::cout << "\n";
 
-    unsigned q_acc = prefix_ids.back();
+    unsigned q_acc = prefix_result.path.back();
     std::cout << "[DBG] cycle search starts from state=" << q_acc
               << " nba=" << wpa.nba_state_of(q_acc)
               << " pos=(" << wpa.pos_of(q_acc).x << "," << wpa.pos_of(q_acc).y << ")\n";
 
-    std::vector<unsigned> cycle_ids = astar_impl(wpa, q_acc, true);
-    if (cycle_ids.empty()) {
+    PathResult cycle_result = astar_cycle_search(wpa, q_acc);
+    if (cycle_result.path.empty()) {
         std::cerr << "astar_find_path(): no cycle found from accepting state\n";
         return {};
     }
 
     std::cout << "[DBG] cycle state IDs: ";
-    for (unsigned id : cycle_ids) std::cout << id << " ";
+    for (unsigned id : cycle_result.path) std::cout << id << " ";
     std::cout << "\n";
 
-    return { to_pos(wpa, prefix_ids), to_pos(wpa, cycle_ids) };
+    return { to_pos(wpa, prefix_result.path), to_pos(wpa, cycle_result.path) };
 }
