@@ -78,7 +78,10 @@ int main() {
     std::cout << "=== init=" << wpa.init_state() << " ===\n";
 
     // get lasso (prefix + cycle) using astar
-    LassoResult lasso = astar_find_path(wpa);
+    // LassoResult lasso = astar_find_path(wpa);
+
+    DStarPlanner planner = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL);
+    LassoResult lasso = dstar_plan(wpa, planner, wpa.init_state());
 
     std::cout << "Prefix length: " << lasso.prefix.size() << "\n";
     for (const Pos& p : lasso.prefix)

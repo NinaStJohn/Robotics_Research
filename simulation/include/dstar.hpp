@@ -11,8 +11,6 @@ struct LassoResult {
     std::vector<Pos> cycle;
 };
 
-
-
 LassoResult astar_find_path(const WPA& wpa);
 
 enum class ReplanMode { FULL_RECOMPUTE, DSTAR_INCREMENTAL };
@@ -32,21 +30,27 @@ struct DStarPlanner {
     ReplanMode                                      mode;
 };
 
+/*
+build D8 tables,
+pre-compute cycles,
+compute first cycle
+*/
 DStarPlanner make_planner(
     const WPA& wpa, 
     ReplanMode mode
 );
 
-std::vector<unsigned> dstar_replan(
-    const WPA& wpa, 
-    unsigned current, 
-    std::vector<unsigned> cycle, 
-    unsigned blockage,
-    ReplanMode mode
+LassoResult dstar_plan(
+    const WPA& wpa,
+    const DStarPlanner& planner,
+    unsigned start
 );
 
-static void compute_dstar_path(
-    const WPA& wpa, 
-    DStarPlanner& planner, 
-    unsigned start
+// Handle dynamic updates and return new path
+LassoResult dstar_replan(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    unsigned current,
+    const std::vector<unsigned>& changed_states,
+    ReplanMode mode
 );

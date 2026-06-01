@@ -14,8 +14,27 @@
 #include "dstar.hpp"
 
 // ------------------------------------------------------------------
+// Helper types
+// ------------------------------------------------------------------
+
+struct Node {
+    double   f;
+    double   g;
+    unsigned state;
+    bool operator>(const Node& o) const { return f > o.f; }
+};
+
+struct PathResult {
+    std::vector<unsigned> path;
+    double                cost;
+};
+
+// ------------------------------------------------------------------
 // Private function declarations
 // ------------------------------------------------------------------
+
+// Cycle search
+static PathResult astar_cycle_search(const WPA& wpa, unsigned start);
 
 // D* Lite helpers
 static DStarKey calculate_key(
@@ -45,18 +64,6 @@ static double euclidean(Pos a, Pos b) {
     double dy = static_cast<double>(a.y - b.y);
     return std::sqrt(dx*dx + dy*dy);
 }
-
-struct Node {
-    double   f;
-    double   g;
-    unsigned state;
-    bool operator>(const Node& o) const { return f > o.f; }
-};
-
-struct PathResult {
-    std::vector<unsigned> path;
-    double                cost;
-};
 
 static double get_g(const std::unordered_map<unsigned, double>& m, unsigned s) {
     std::unordered_map<unsigned, double>::const_iterator it = m.find(s);
@@ -112,6 +119,19 @@ DStarPlanner make_planner(
             if (!result.path.empty()) {
                 planner.cycle_path[s] = result.path;
                 planner.cycle_cost[s] = result.cost;
+
+                // DEBUG: print cycle info
+                std::cout << "[DBG] accepting state " << s << " at (" << wpa.pos_of(s).x
+                          << "," << wpa.pos_of(s).y << "): cycle length=" << result.path.size()
+                          << " cost=" << result.cost << "\n";
+                std::cout << "      path: ";
+                for (unsigned id : result.path) {
+                    std::cout << id << "(" << wpa.pos_of(id).x << "," << wpa.pos_of(id).y << ") ";
+                }
+                std::cout << "\n";
+            } else {
+                std::cout << "[DBG] accepting state " << s << " at (" << wpa.pos_of(s).x
+                          << "," << wpa.pos_of(s).y << "): NO CYCLE FOUND\n";
             }
         }
     }
@@ -139,16 +159,15 @@ DStarPlanner make_planner(
     return planner;
 }
 
-std::vector<unsigned> dstar_replan(
+LassoResult dstar_replan(
     const WPA& wpa,
+    DStarPlanner& planner,
     unsigned current,
-    std::vector<unsigned> cycle,
-    unsigned blockage,
+    const std::vector<unsigned>& changed_states,
     ReplanMode mode
 ){
-    // FULL_RECOMPUTE: call make_planner again from scratch
-    // DSTAR_INCREMENTAL: call wpa.set_state_exit_weight(blockage, infinity),
-    // call UpdateVertex on all predecessors of blockage, re-run ComputeShortestPath with updated km
+    // TODO: implement incremental replanning
+    return {};
 }
 
 // ------------------------------------------------------------------
@@ -284,13 +303,89 @@ static void compute_shortest_path(
     }
 }
 
-static LassoResult reconstruct_lasso(
+LassoResult dstar_plan(
     const WPA& wpa,
     const DStarPlanner& planner,
     unsigned start
 ){
-    // TODO: reconstruct lasso from D* tables
-    return {};
+
+    unsigned current = start;
+    std::vector<unsigned> prefix_ids{};
+
+    std::cout << "[DBG dstar_plan] start=" << start << " at (" << wpa.pos_of(start).x
+              << "," << wpa.pos_of(start).y << ")\n";
+
+    while (true){
+        prefix_ids.push_back(current);
+
+        // found the end of the prefix
+        if (wpa.is_accepting(current)){
+            std::cout << "[DBG dstar_plan] found accepting state " << current << " at ("
+                      << wpa.pos_of(current).x << "," << wpa.pos_of(current).y << ")\n";
+            break;
+        }
+
+        // find the best neighnor
+        double best_cost = std::numeric_limits<double>::infinity();
+        unsigned best_next = wpa.prod() -> num_states(); // sentinel
+
+        // loop: check each neighbor
+        for (const WPA::Neighbor& nb : wpa.neighbors_ext(current)){
+            // cost to reach this neighbor via its g-value
+            double c = nb.cost + get_g(planner.g, nb.dst);
+
+            // check to see what is the best so far
+            if (c < best_cost){
+                best_cost = c;          // retain cost
+                best_next = nb.dst;     // remeber which state to go to
+            }
+        }
+
+        // after loop: best_next is the neighbor with minimum total cost
+        if (best_next == wpa.prod()->num_states()) {
+            std::cout << "[DBG dstar_plan] no neighbor found from state " << current << "\n";
+            return {};  // error: no valid neighbor found
+        }
+
+        std::cout << "[DBG dstar_plan] step " << current << "(" << wpa.pos_of(current).x
+                  << "," << wpa.pos_of(current).y << ") -> " << best_next << "("
+                  << wpa.pos_of(best_next).x << "," << wpa.pos_of(best_next).y << ") cost="
+                  << best_cost << "\n";
+
+        current = best_next;
+    }
+
+    if (start == wpa.init_state() && wpa.is_accepting(start) && planner.cycle_cost.count(start) > 0) {
+        // Pick first accepting state that's not the start
+        unsigned switched_state = start;
+        for (unsigned s = 0; s < wpa.prod()->num_states(); s++) {
+            if (wpa.is_accepting(s) && s != start && planner.cycle_cost.count(s) > 0) {
+                switched_state = s;
+                std::cout << "[DBG dstar_plan] switched from state " << start << " to state " << switched_state << "\n";
+                break;
+            }
+        }
+        
+        // Use start's cycle as prefix, and switched_state's cycle as the cycle
+        if (switched_state != start) {
+            std::vector<Pos> prefix_pos = to_pos(wpa, planner.cycle_path.at(start));
+            std::vector<Pos> cycle_pos = to_pos(wpa, planner.cycle_path.at(switched_state));
+            return LassoResult{prefix_pos, cycle_pos};
+        }
+    }
+
+    // now current is an accepting state
+    if (planner.cycle_path.count(current) == 0) {
+        std::cout << "[DBG dstar_plan] no cycle precomputed for accepting state " << current << "\n";
+        return {};  // no cycle precomputed
+    }
+
+    const std::vector<unsigned>& cycle_ids = planner.cycle_path.at(current);
+    std::cout << "[DBG dstar_plan] using cycle of length " << cycle_ids.size() << "\n";
+
+    std::vector<Pos> prefix_pos = to_pos(wpa, prefix_ids);
+    std::vector<Pos> cycle_pos = to_pos(wpa, cycle_ids);
+    return LassoResult{prefix_pos, cycle_pos};
 }
 
 // ------------------------------------------------------------------

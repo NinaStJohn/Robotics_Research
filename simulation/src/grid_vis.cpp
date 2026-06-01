@@ -32,7 +32,13 @@ flatten_path(const std::vector<std::vector<Pos>>& segments)
 {
     std::vector<Pos> out;
     for (const auto& seg : segments) {
-        out.insert(out.end(), seg.begin(), seg.end());
+        for (const auto& pos : seg) {
+            // Skip duplicate at prefix-cycle boundary
+            if (!out.empty() && pos.x == out.back().x && pos.y == out.back().y) {
+                continue;
+            }
+            out.push_back(pos);
+        }
     }
     return out;
 }
