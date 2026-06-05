@@ -93,6 +93,7 @@ void dynamic_visulizer(
                                   << " cost=" << nb.cost << "\n";
                     }
                 }
+                std::cout << "\n";
             }
         }
 
