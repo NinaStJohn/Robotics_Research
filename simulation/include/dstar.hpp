@@ -28,7 +28,8 @@ struct DStarPlanner {
         std::vector<DStarEntry>,                        // Dstar lite stores key and state_id
         std::greater<DStarEntry>> U;
     ReplanMode                                      mode;
-    std::unordered_map<unsigned, std::vector<unsigned>> pred_map; // list of states
+    std::unordered_map<unsigned, std::vector<unsigned>> pred_map; // reverse graph
+    unsigned                                        slast;        // robot pos at last replan
 };
 
 /*
@@ -48,6 +49,15 @@ LassoResult dstar_plan(
 );
 
 // D* Lite engine helpers — non-static so dstar_replan.cpp can call them
+double get_g(const std::unordered_map<unsigned, double>& m, unsigned s);
+double get_rhs(const std::unordered_map<unsigned, double>& m, unsigned s);
+
+DStarKey calculate_key(
+    const DStarPlanner& planner,
+    unsigned s,
+    unsigned sstart
+);
+
 void update_vertex(
     const WPA& wpa,
     DStarPlanner& planner,
@@ -71,9 +81,10 @@ std::vector<unsigned> detect_changed_states(
 
 // Handle dynamic updates and return new path
 LassoResult dstar_replan(
-    const WPA& wpa,
+    WPA& wpa,
     DStarPlanner& planner,
     unsigned current,
     const std::vector<unsigned>& changed_states,
+    bool is_now_blocked,
     ReplanMode mode
 );

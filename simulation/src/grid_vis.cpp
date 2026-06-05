@@ -46,8 +46,8 @@ flatten_path(const std::vector<std::vector<Pos>>& segments)
 void dynamic_visulizer(
     GridWorld& world,
     const std::vector<std::vector<Pos>>& path_segments,
-    const WPA& wpa,
-    const DStarPlanner& planner
+    WPA& wpa,
+    DStarPlanner& planner
 ){
     const int w = world.width();
     const int h = world.height();
@@ -94,6 +94,9 @@ void dynamic_visulizer(
                     }
                 }
                 std::cout << "\n";
+
+                bool is_now_blocked = world.is_blocked({gx, gy});
+                dstar_replan(wpa, planner, wpa.init_state(), changed, is_now_blocked, planner.mode);
             }
         }
 

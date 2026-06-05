@@ -36,18 +36,12 @@ struct PathResult {
 // Cycle search
 static PathResult astar_cycle_search(const WPA& wpa, unsigned start);
 
-// D* Lite helpers
-static DStarKey calculate_key(
+// forward declaration (definition below; signature also in dstar.hpp)
+DStarKey calculate_key(
     const DStarPlanner& planner,
     unsigned s, unsigned sstart
 );
-// forward declarations (definitions below; signatures also in dstar.hpp)
-void update_vertex(
-    const WPA& wpa,
-    DStarPlanner& planner,
-    unsigned u,
-    unsigned sgoal
-);
+// forward declaration (definition below; signature also in dstar.hpp)
 void compute_shortest_path(
     const WPA& wpa,
     DStarPlanner& planner,
@@ -66,12 +60,12 @@ static double euclidean(Pos a, Pos b) {
     return std::sqrt(dx*dx + dy*dy);
 }
 
-static double get_g(const std::unordered_map<unsigned, double>& m, unsigned s) {
+double get_g(const std::unordered_map<unsigned, double>& m, unsigned s) {
     std::unordered_map<unsigned, double>::const_iterator it = m.find(s);
     return it == m.end() ? std::numeric_limits<double>::infinity() : it->second;
 }
 
-static double get_rhs(const std::unordered_map<unsigned, double>& m, unsigned s) {
+double get_rhs(const std::unordered_map<unsigned, double>& m, unsigned s) {
     std::unordered_map<unsigned, double>::const_iterator it = m.find(s);
     return it == m.end() ? std::numeric_limits<double>::infinity() : it->second;
 }
@@ -159,6 +153,8 @@ DStarPlanner make_planner(
 
     // save states for recalculation
     planner.pred_map = pred_map;
+    planner.slast    = init;
+    planner.mode     = mode;
     return planner;
 }
 
@@ -168,7 +164,7 @@ DStarPlanner make_planner(
 // D* Lite implementation (based on Koenig & Likhachev 2002, Figure 4)
 // ------------------------------------------------------------------
 
-static DStarKey calculate_key(
+DStarKey calculate_key(
     const DStarPlanner& planner,
     unsigned s,
     unsigned sstart
@@ -179,22 +175,6 @@ static DStarKey calculate_key(
     double min_val = std::min(get_g(planner.g, s), get_g(planner.rhs, s));
     double key1 = min_val + h + planner.km;
     return {key1, min_val};
-}
-
-void update_vertex(
-    const WPA& wpa,
-    DStarPlanner& planner,
-    unsigned u,
-    unsigned sgoal
-){
-    double g_u = get_g(planner.g, u);
-    double rhs_u = get_g(planner.rhs, u);
-
-    // c++ does not haeve Update or Remove, so we use lazy deletion
-    // Always push with new key (duplicates are OK) & skip stale entries when popping
-    if (g_u != rhs_u) {
-        planner.U.push({calculate_key(planner, u, sgoal), u});
-    }
 }
 
 void compute_shortest_path(
@@ -219,7 +199,10 @@ void compute_shortest_path(
         }
 
         double g_u = get_g(planner.g, u);
-        double rhs_u = get_g(planner.rhs, u);
+        double rhs_u = get_rhs(planner.rhs, u);
+
+        // {09} lazy deletion: state became consistent after being inserted — skip
+        if (g_u == rhs_u) continue;
 
         // Line 16-21: overconsistent (g > rhs) — propagate improvements
         if (g_u > rhs_u) {
