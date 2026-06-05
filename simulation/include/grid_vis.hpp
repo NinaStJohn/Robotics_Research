@@ -4,6 +4,8 @@
 #include "ts.hpp"
 #include "types.hpp"
 #include "grid_world.hpp"
+#include "dstar.hpp"
+#include "wpa.hpp"
 
 // takes in full path result
 void static_visualizer(
@@ -16,5 +18,7 @@ void static_visualizer(
 
 void dynamic_visulizer(
     GridWorld& world,
-    const std::vector<std::vector<Pos>>& path_segments
+    const std::vector<std::vector<Pos>>& path_segments,
+    const WPA& wpa,
+    const DStarPlanner& planner
 );

@@ -45,7 +45,9 @@ flatten_path(const std::vector<std::vector<Pos>>& segments)
 
 void dynamic_visulizer(
     GridWorld& world,
-    const std::vector<std::vector<Pos>>& path_segments
+    const std::vector<std::vector<Pos>>& path_segments,
+    const WPA& wpa,
+    const DStarPlanner& planner
 ){
     const int w = world.width();
     const int h = world.height();
@@ -77,6 +79,20 @@ void dynamic_visulizer(
             int gy = (mouse_y - margin) / cellSize;
             if (world.in_bounds({gx, gy})) {
                 world.set_blocked({gx, gy}, !world.is_blocked({gx, gy}));
+                std::vector<unsigned> changed = detect_changed_states(wpa, {{gx, gy}});
+
+                bool blocked = path_is_blocked(path, world);
+                std::cout << "[DBG click] path blocked: " << (blocked ? "YES — replan needed" : "NO") << "\n";
+
+                for (unsigned s : changed) {
+                    std::cout << "  [DBG links] state " << s
+                              << " (nba=" << wpa.nba_state_of(s) << ") neighbors:\n";
+                    for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
+                        std::cout << "    -> state " << nb.dst
+                                  << " pos=(" << wpa.pos_of(nb.dst).x << "," << wpa.pos_of(nb.dst).y << ")"
+                                  << " cost=" << nb.cost << "\n";
+                    }
+                }
             }
         }
 

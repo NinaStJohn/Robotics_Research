@@ -30,7 +30,8 @@ std::vector<unsigned> detect_changed_states(
             if (pos.x == cell.x && pos.y == cell.y) {
                 std::cout << "[DBG detect] cell (" << cell.x << "," << cell.y
                           << ") -> product state " << s
-                          << " (nba=" << wpa.nba_state_of(s) << ")\n";
+                          << " (nba=" << wpa.nba_state_of(s) << ")"
+                          << " pos=(" << pos.x << "," << pos.y << ")\n";
                 result.push_back(s);
                 break;
             }

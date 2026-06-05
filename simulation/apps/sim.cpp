@@ -92,7 +92,7 @@ int main() {
         std::cout << "  (" << p.x << ", " << p.y << ")\n";
 
     // grid world vizulizer — prefix in one color, cycle in another
-    dynamic_visulizer(world, std::vector<std::vector<Pos>>{lasso.prefix, lasso.cycle});
+    dynamic_visulizer(world, std::vector<std::vector<Pos>>{lasso.prefix, lasso.cycle}, wpa, planner);
 
     return 0;
 }

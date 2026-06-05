@@ -226,7 +226,7 @@ void compute_shortest_path(
             planner.g[u] = rhs_u;
 
             // Update predecessors
-            auto pred_it = pred_map.find(u);
+            std::unordered_map<unsigned, std::vector<unsigned>>::const_iterator pred_it = pred_map.find(u);
             if (pred_it != pred_map.end()) {
                 for (unsigned s : pred_it->second) {
                     if (s != sgoal) {
@@ -251,7 +251,7 @@ void compute_shortest_path(
             planner.g[u] = std::numeric_limits<double>::infinity();
 
             // Update predecessors of u and u itself
-            auto pred_it = pred_map.find(u);
+            std::unordered_map<unsigned, std::vector<unsigned>>::const_iterator pred_it = pred_map.find(u);
             std::vector<unsigned> affected;
             if (pred_it != pred_map.end()) {
                 affected = pred_it->second;
@@ -414,7 +414,7 @@ static PathResult astar_cycle_search(const WPA& wpa, unsigned start)
         }
 
         // stale entry check
-        auto it = g_cost.find(cur.state);
+        std::unordered_map<unsigned, double>::iterator it = g_cost.find(cur.state);
         if (it != g_cost.end() && cur.g > it->second)
             continue;
 
@@ -424,7 +424,7 @@ static PathResult astar_cycle_search(const WPA& wpa, unsigned start)
             // so parent[start] is never overwritten and reconstruction stays clean
             if (nb.dst == start) {
                 double cost_back = cur.g + nb.cost;
-                auto it3 = g_cost.find(q_imag);
+                std::unordered_map<unsigned, double>::iterator it3 = g_cost.find(q_imag);
                 if (it3 == g_cost.end() || cost_back < it3->second) {
                     g_cost[q_imag] = cost_back;
                     parent[q_imag] = cur.state;
@@ -434,7 +434,7 @@ static PathResult astar_cycle_search(const WPA& wpa, unsigned start)
             }
 
             double tentative_g = cur.g + nb.cost;
-            auto it2 = g_cost.find(nb.dst);
+            std::unordered_map<unsigned, double>::iterator it2 = g_cost.find(nb.dst);
             if (it2 != g_cost.end() && tentative_g >= it2->second)
                 continue;
             g_cost[nb.dst] = tentative_g;
@@ -444,7 +444,7 @@ static PathResult astar_cycle_search(const WPA& wpa, unsigned start)
 
         // free edge to q_imag for accepting states
         if (cur.state != start && wpa.is_accepting(cur.state)) {
-            auto it3 = g_cost.find(q_imag);
+            std::unordered_map<unsigned, double>::iterator it3 = g_cost.find(q_imag);
             if (it3 == g_cost.end() || cur.g < it3->second) {
                 g_cost[q_imag] = cur.g;
                 parent[q_imag] = cur.state;
