@@ -28,6 +28,7 @@ struct DStarPlanner {
         std::vector<DStarEntry>,                        // Dstar lite stores key and state_id
         std::greater<DStarEntry>> U;
     ReplanMode                                      mode;
+    std::unordered_map<unsigned, std::vector<unsigned>> pred_map; // list of states
 };
 
 /*
@@ -44,6 +45,28 @@ LassoResult dstar_plan(
     const WPA& wpa,
     const DStarPlanner& planner,
     unsigned start
+);
+
+// D* Lite engine helpers — non-static so dstar_replan.cpp can call them
+void update_vertex(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    unsigned u,
+    unsigned sgoal
+);
+
+void compute_shortest_path(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    const std::unordered_map<unsigned, std::vector<unsigned>>& pred_map,
+    unsigned sstart,
+    unsigned sgoal
+);
+
+// Phase 2b: map changed grid cells to product state IDs
+std::vector<unsigned> detect_changed_states(
+    const WPA& wpa,
+    const std::vector<Pos>& changed_cells
 );
 
 // Handle dynamic updates and return new path

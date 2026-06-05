@@ -41,13 +41,14 @@ static DStarKey calculate_key(
     const DStarPlanner& planner,
     unsigned s, unsigned sstart
 );
-static void update_vertex(
+// forward declarations (definitions below; signatures also in dstar.hpp)
+void update_vertex(
     const WPA& wpa,
     DStarPlanner& planner,
     unsigned u,
     unsigned sgoal
 );
-static void compute_shortest_path(
+void compute_shortest_path(
     const WPA& wpa,
     DStarPlanner& planner,
     const std::unordered_map<unsigned, std::vector<unsigned>>& pred_map,
@@ -156,19 +157,12 @@ DStarPlanner make_planner(
     // run D* lite
     compute_shortest_path(wpa, planner, pred_map, init, planner.s_imag);
 
+    // save states for recalculation
+    planner.pred_map = pred_map;
     return planner;
 }
 
-LassoResult dstar_replan(
-    const WPA& wpa,
-    DStarPlanner& planner,
-    unsigned current,
-    const std::vector<unsigned>& changed_states,
-    ReplanMode mode
-){
-    // TODO: implement incremental replanning
-    return {};
-}
+
 
 // ------------------------------------------------------------------
 // D* Lite implementation (based on Koenig & Likhachev 2002, Figure 4)
@@ -187,7 +181,7 @@ static DStarKey calculate_key(
     return {key1, min_val};
 }
 
-static void update_vertex(
+void update_vertex(
     const WPA& wpa,
     DStarPlanner& planner,
     unsigned u,
@@ -203,7 +197,7 @@ static void update_vertex(
     }
 }
 
-static void compute_shortest_path(
+void compute_shortest_path(
     const WPA& wpa,
     DStarPlanner& planner,
     const std::unordered_map<unsigned, std::vector<unsigned>>& pred_map,
