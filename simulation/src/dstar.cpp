@@ -71,25 +71,36 @@ double get_rhs(const std::unordered_map<unsigned, double>& m, unsigned s) {
 }
 
 // ------------------------------------------------------------------
-// to_pos
+// to_pos / to_pos_ids
 //
 // Converts product state IDs to grid Pos, deduplicating consecutive
 // identical positions (caused by NBA transitions with no grid move).
+// to_pos_ids returns both in parallel so callers can keep the IDs.
 // ------------------------------------------------------------------
 static std::vector<Pos> to_pos(const WPA& wpa, const std::vector<unsigned>& ids)
 {
-    std::vector<Pos> raw;
-    for (unsigned id : ids)
-        raw.push_back(wpa.pos_of(id));
-
-    std::vector<Pos> deduped;
-    for (const Pos& pos : raw) {
-        if (deduped.empty() ||
-            deduped.back().x != pos.x ||
-            deduped.back().y != pos.y)
-            deduped.push_back(pos);
+    std::vector<Pos> out;
+    for (unsigned id : ids) {
+        Pos pos = wpa.pos_of(id);
+        if (out.empty() || out.back().x != pos.x || out.back().y != pos.y)
+            out.push_back(pos);
     }
-    return deduped;
+    return out;
+}
+
+static void to_pos_ids(
+    const WPA& wpa,
+    const std::vector<unsigned>& ids,
+    std::vector<Pos>& out_pos,
+    std::vector<unsigned>& out_ids
+){
+    for (unsigned id : ids) {
+        Pos pos = wpa.pos_of(id);
+        if (out_pos.empty() || out_pos.back().x != pos.x || out_pos.back().y != pos.y) {
+            out_pos.push_back(pos);
+            out_ids.push_back(id);
+        }
+    }
 }
 
 // ------------------------------------------------------------------
@@ -251,21 +262,21 @@ void compute_shortest_path(
                     }
                 }
 
+                // {26-27}: if rhs was built on the old cost, recompute it
                 if (get_rhs(planner.rhs, s) == cost_s_to_u + gold) {
-                    // Line 27: recompute rhs(s) from all successors
                     if (s != sgoal) {
                         double new_rhs = std::numeric_limits<double>::infinity();
                         for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
                             new_rhs = std::min(new_rhs, nb.cost + get_g(planner.g, nb.dst));
                         }
-                        // Also consider weighted edge to sgoal if s is accepting
                         if (wpa.is_accepting(s) && planner.cycle_cost.count(s) > 0) {
                             new_rhs = std::min(new_rhs, planner.cycle_cost[s] + get_g(planner.g, sgoal));
                         }
                         planner.rhs[s] = new_rhs;
                     }
-                    update_vertex(wpa, planner, s, sstart);
                 }
+                // {28}: UpdateVertex called for ALL predecessors, not just those satisfying {26}
+                update_vertex(wpa, planner, s, sstart);
             }
         }
 
@@ -345,9 +356,11 @@ LassoResult dstar_plan(
         
         // Use start's cycle as prefix, and switched_state's cycle as the cycle
         if (switched_state != start) {
-            std::vector<Pos> prefix_pos = to_pos(wpa, planner.cycle_path.at(start));
-            std::vector<Pos> cycle_pos = to_pos(wpa, planner.cycle_path.at(switched_state));
-            return LassoResult{prefix_pos, cycle_pos};
+            std::vector<Pos>      prefix_pos; std::vector<unsigned> prefix_ids_out;
+            std::vector<Pos>      cycle_pos;  std::vector<unsigned> cycle_ids_out;
+            to_pos_ids(wpa, planner.cycle_path.at(start),          prefix_pos, prefix_ids_out);
+            to_pos_ids(wpa, planner.cycle_path.at(switched_state),  cycle_pos,  cycle_ids_out);
+            return LassoResult{prefix_pos, cycle_pos, prefix_ids_out, cycle_ids_out};
         }
     }
 
@@ -360,9 +373,11 @@ LassoResult dstar_plan(
     const std::vector<unsigned>& cycle_ids = planner.cycle_path.at(current);
     std::cout << "[DBG dstar_plan] using cycle of length " << cycle_ids.size() << "\n";
 
-    std::vector<Pos> prefix_pos = to_pos(wpa, prefix_ids);
-    std::vector<Pos> cycle_pos = to_pos(wpa, cycle_ids);
-    return LassoResult{prefix_pos, cycle_pos};
+    std::vector<Pos>      prefix_pos; std::vector<unsigned> prefix_ids_out;
+    std::vector<Pos>      cycle_pos;  std::vector<unsigned> cycle_ids_out;
+    to_pos_ids(wpa, prefix_ids, prefix_pos, prefix_ids_out);
+    to_pos_ids(wpa, cycle_ids,  cycle_pos,  cycle_ids_out);
+    return LassoResult{prefix_pos, cycle_pos, prefix_ids_out, cycle_ids_out};
 }
 
 // ------------------------------------------------------------------

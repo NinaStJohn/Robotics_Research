@@ -18,7 +18,7 @@ void static_visualizer(
 
 void dynamic_visulizer(
     GridWorld& world,
-    const std::vector<std::vector<Pos>>& path_segments,
+    const LassoResult& lasso,
     WPA& wpa,
     DStarPlanner& planner
 );

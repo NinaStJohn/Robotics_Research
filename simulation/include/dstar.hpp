@@ -7,8 +7,10 @@
 #include "wpa.hpp"
 
 struct LassoResult {
-    std::vector<Pos> prefix;
-    std::vector<Pos> cycle;
+    std::vector<Pos>      prefix;
+    std::vector<Pos>      cycle;
+    std::vector<unsigned> prefix_ids;
+    std::vector<unsigned> cycle_ids;
 };
 
 LassoResult astar_find_path(const WPA& wpa);
