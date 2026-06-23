@@ -88,6 +88,11 @@ void dynamic_visulizer(
     std::vector<unsigned> path_ids;
     build_flat_path(lasso, path, path_ids);
 
+    if (path.empty()) {
+        std::cerr << "dynamic_visualizer: empty path, nothing to show\n";
+        return;
+    }
+
     int  step_index   = 0;
     int  cycle_start  = (int)lasso.prefix.size();
     bool replanned    = false;
