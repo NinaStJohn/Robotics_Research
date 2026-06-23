@@ -13,6 +13,8 @@
 #include "grid_world.hpp"
 #include "ts.hpp"
 #include "types.hpp"
+#include "dstar.hpp"
+#include "debug_log.hpp"
 
 
 // private functions
@@ -127,6 +129,17 @@ void dynamic_visulizer(
 
                 bool is_now_blocked = world.is_blocked({gx, gy});
                 unsigned current_state = path_ids[step_index];
+
+                dbg("events.log")
+                    << "[click] cell=(" << gx << "," << gy << ")"
+                    << " now_blocked=" << is_now_blocked
+                    << " path_blocked=" << blocked
+                    << " robot step_index=" << step_index
+                    << " current_state=" << current_state
+                    << " pos=(" << wpa.pos_of(current_state).x << "," << wpa.pos_of(current_state).y << ")"
+                    << " nba=" << wpa.nba_state_of(current_state)
+                    << " #changed=" << changed.size() << "\n" << std::flush;
+
                 LassoResult new_lasso = dstar_replan(wpa, planner, current_state, changed, is_now_blocked, planner.mode);
 
                 if (!new_lasso.prefix.empty() || !new_lasso.cycle.empty()) {
@@ -134,6 +147,10 @@ void dynamic_visulizer(
                     cycle_start = (int)new_lasso.prefix.size();
                     step_index  = std::min(step_index, (int)path.size() - 1);
                     replanned   = true;
+                    dbg("events.log") << "  [click] replan OK: new prefix="
+                        << new_lasso.prefix.size() << " cycle=" << new_lasso.cycle.size() << "\n" << std::flush;
+                } else {
+                    dbg("events.log") << "  [click] replan FAILED: empty lasso (no path)\n" << std::flush;
                 }
             }
         }
@@ -204,6 +221,13 @@ void dynamic_visulizer(
             step_index++;
             if (step_index >= (int)path.size()) step_index = cycle_start;
             elapsed = 0.0f;
+
+            unsigned sid = path_ids[step_index];
+            dbg("events.log")
+                << "[step] step_index=" << step_index
+                << " state=" << sid
+                << " pos=(" << wpa.pos_of(sid).x << "," << wpa.pos_of(sid).y << ")"
+                << " nba=" << wpa.nba_state_of(sid) << "\n" << std::flush;
         }
 
         // draw robot

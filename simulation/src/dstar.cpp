@@ -12,6 +12,7 @@
 #include <iostream>
 
 #include "dstar.hpp"
+#include "debug_log.hpp"
 
 // ------------------------------------------------------------------
 // Helper types
@@ -151,6 +152,51 @@ DStarPlanner make_planner(
         }
     }
 
+    // -------------------------------------------------------------
+    // DEBUG: structural reachability to the accepting set.
+    //
+    // Reverse-BFS from every accepting state over pred_map. A state
+    // is "can_reach_accept" if some accepting state is reachable by
+    // following FORWARD edges (we walk them backwards here). This is
+    // purely topological — it ignores edge weights/blocking — so if
+    // an nba=2 state shows reach=NO here, the product itself has no
+    // path from nba=2 to the accepting set (NBA/product bug), not a
+    // weighting/replanning problem.
+    // -------------------------------------------------------------
+    {
+        const unsigned N = wpa.prod()->num_states();
+        std::vector<char> can_reach(N, 0);
+        std::vector<unsigned> frontier;
+        for (unsigned s = 0; s < N; ++s) {
+            if (wpa.is_accepting(s)) { can_reach[s] = 1; frontier.push_back(s); }
+        }
+        while (!frontier.empty()) {
+            unsigned v = frontier.back(); frontier.pop_back();
+            std::unordered_map<unsigned, std::vector<unsigned>>::const_iterator pit = pred_map.find(v);
+            if (pit == pred_map.end()) continue;
+            for (unsigned p : pit->second) {
+                if (!can_reach[p]) { can_reach[p] = 1; frontier.push_back(p); }
+            }
+        }
+
+        std::ofstream& log = dbg("reachability.log");
+        log << "=== structural reachability to accepting set (topological, ignores weights) ===\n";
+        for (unsigned s = 0; s < N; ++s) {
+            log << "s=" << s
+                << " nba=" << wpa.nba_state_of(s)
+                << " pos=(" << wpa.pos_of(s).x << "," << wpa.pos_of(s).y << ")"
+                << " accepting=" << wpa.is_accepting(s)
+                << " reach_accept=" << (can_reach[s] ? "YES" : "NO")
+                << " -> succ:";
+            for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
+                log << " " << nb.dst << "(nba=" << wpa.nba_state_of(nb.dst)
+                    << ",c=" << nb.cost << ")";
+            }
+            log << "\n";
+        }
+        log << std::flush;
+    }
+
     // init D* tables
     // g and rhs == inf bc uninit
     planner.rhs[planner.s_imag] = 0;
@@ -158,6 +204,16 @@ DStarPlanner make_planner(
 
     // insert s_imag with U into key (0,0)
     planner.U.push({{0.0, 0.0}, planner.s_imag});
+
+    // Seed accepting states with precomputed cycles as entry points to s_imag.
+    // rhs[s] = cycle_cost[s]: from s, one full cycle costs cycle_cost[s], then s_imag is reached.
+    // Without this, D* only starts from s_imag which has no real predecessors, so nothing propagates.
+    for (unsigned s = 0; s < wpa.prod()->num_states(); ++s) {
+        if (wpa.is_accepting(s) && planner.cycle_cost.count(s) > 0) {
+            planner.rhs[s] = planner.cycle_cost.at(s);
+            planner.U.push({calculate_key(planner, s, init), s});
+        }
+    }
 
     // run D* lite
     compute_shortest_path(wpa, planner, pred_map, init, planner.s_imag);
@@ -331,7 +387,15 @@ LassoResult dstar_plan(
 
         // after loop: best_next is the neighbor with minimum total cost
         if (best_next == wpa.prod()->num_states()) {
-            std::cout << "[DBG dstar_plan] no neighbor found from state " << current << "\n";
+            std::cout << "[DBG dstar_plan] no neighbor found from state " << current
+                      << " (" << wpa.pos_of(current).x << "," << wpa.pos_of(current).y << ")\n";
+            for (const WPA::Neighbor& nb : wpa.neighbors_ext(current)) {
+                std::cout << "  nb=" << nb.dst
+                          << " pos=(" << wpa.pos_of(nb.dst).x << "," << wpa.pos_of(nb.dst).y << ")"
+                          << " edge_cost=" << nb.cost
+                          << " g[nb]=" << get_g(planner.g, nb.dst)
+                          << (nb.dst == current ? " [self-loop]" : "") << "\n";
+            }
             return {};  // error: no valid neighbor found
         }
 

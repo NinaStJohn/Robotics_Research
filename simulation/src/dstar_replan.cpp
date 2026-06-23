@@ -10,6 +10,7 @@
 
 #include "dstar.hpp"
 #include "wpa.hpp"
+#include "debug_log.hpp"
 
 // ------------------------------------------------------------------
 // detect_changed_states
@@ -115,12 +116,24 @@ LassoResult dstar_replan(
         : 1.0;
     double cold = is_now_blocked ? 1.0 : std::numeric_limits<double>::infinity();
 
+    std::ofstream& log = dbg("replan.log");
+    log << "\n========================================================\n";
+    log << "[replan] current=" << current
+        << " pos=(" << wpa.pos_of(current).x << "," << wpa.pos_of(current).y << ")"
+        << " nba=" << wpa.nba_state_of(current)
+        << " is_now_blocked=" << is_now_blocked
+        << " new_cost=" << new_cost << " cold=" << cold
+        << " #changed=" << changed_states.size() << "\n";
+
     // {40-47} for each changed product state
     for (unsigned u : changed_states) {
         // {42} update edge cost in WPA
         wpa.set_state_exit_weight(u, new_cost);
 
         if (u == planner.s_imag) continue;
+
+        double rhs_before = get_rhs(planner.rhs, u);
+        double g_before   = get_g(planner.g, u);
 
         // {43-44} cost decreased — rhs(u) might improve
         if (cold > new_cost) {
@@ -143,12 +156,40 @@ LassoResult dstar_replan(
             planner.rhs[u] = new_rhs;
         }
 
+        // log the edge update for this changed state
+        log << "  [changed] u=" << u
+            << " pos=(" << wpa.pos_of(u).x << "," << wpa.pos_of(u).y << ")"
+            << " nba=" << wpa.nba_state_of(u)
+            << " branch=" << (cold > new_cost ? "DECREASE" : "INCREASE")
+            << " g=" << g_before
+            << " rhs:" << rhs_before << "->" << get_rhs(planner.rhs, u) << "\n";
+        for (const WPA::Neighbor& nb : wpa.neighbors_ext(u)) {
+            log << "      succ " << nb.dst
+                << " pos=(" << wpa.pos_of(nb.dst).x << "," << wpa.pos_of(nb.dst).y << ")"
+                << " nba=" << wpa.nba_state_of(nb.dst)
+                << " c=" << nb.cost
+                << " g[succ]=" << get_g(planner.g, nb.dst) << "\n";
+        }
+
         // {47} update_vertex
         update_vertex(wpa, planner, u, current);
     }
 
     // {48} recompute shortest path
     compute_shortest_path(wpa, planner, planner.pred_map, current, planner.s_imag);
+
+    // dump g/rhs for every product state so we can see what survived the replan
+    log << "[replan] g/rhs after compute_shortest_path (current=" << current << "):\n";
+    for (unsigned s = 0; s < wpa.prod()->num_states(); ++s) {
+        double gs  = get_g(planner.g, s);
+        double rhs = get_rhs(planner.rhs, s);
+        log << "  s=" << s
+            << " pos=(" << wpa.pos_of(s).x << "," << wpa.pos_of(s).y << ")"
+            << " nba=" << wpa.nba_state_of(s)
+            << " g=" << gs << " rhs=" << rhs
+            << (gs != rhs ? " INCONSISTENT" : "") << "\n";
+    }
+    log << std::flush;
 
     return dstar_plan(wpa, planner, current);
 }
