@@ -42,7 +42,7 @@ int main() {
     std::string ltl = "G(a -> Fb) & G(b -> Fa)";
     
     GridWorld world(6, 6);
-    Turtlebot bot1({1,0});
+    Turtlebot bot1({0,0});
     world.set_label({0,0}, "a", true);
     world.set_label({5,5}, "b", true);
 

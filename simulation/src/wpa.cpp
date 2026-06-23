@@ -3,6 +3,7 @@
 #include <climits>
 #include <iostream>
 #include <spot/twa/twagraph.hh>
+#include <bddx.h>
 
 // ------------------------------------------------------------------
 // Constructor
@@ -27,11 +28,23 @@ WPA::WPA(ProductBundle&& bundle)
     // returns garbage.
     nba_size_ = bundle_.nba_size;
 
-    // Initialize all edge weights to 1.0
+    // Initialize edge weights from per-robot action costs.
+    // Each product edge's BDD condition contains exactly one action AP variable.
+    // Find which action it is by checking which variable is compatible with the condition.
     for (unsigned s = 0; s < prod->num_states(); ++s) {
-        for (const auto& e : prod->out(s)) {
-            unsigned idx = prod->edge_number(e);
-            weights_[idx] = 1.0;
+        for (const spot::twa_graph::edge_storage_t& e : prod->out(s)) {
+            unsigned idx  = prod->edge_number(e);
+            double   cost = 1.0;  // fallback if action can't be identified
+            for (const std::pair<const Robot::Action, int>& kv : bundle_.act_ap) {
+                if ((e.cond & bdd_ithvar(kv.second)) != bddfalse) {
+                    std::unordered_map<Robot::Action, double>::const_iterator it =
+                        bundle_.action_costs.find(kv.first);
+                    if (it != bundle_.action_costs.end())
+                        cost = it->second;
+                    break;
+                }
+            }
+            weights_[idx] = cost;
         }
     }
 }

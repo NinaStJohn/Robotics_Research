@@ -116,7 +116,11 @@ ProductBundle build_product_from_world_robot_ltl(
         bundle.world_ap
     );
  
-    // 3) Build NBA
+    // 3) Copy per-robot action costs so WPA can weight edges without re-querying the robot
+    for (Robot::Action a : robot.actions())
+        bundle.action_costs[a] = robot.action_cost(a);
+
+    // 4) Build NBA
     spot::twa_graph_ptr nba = ltl_to_nba(pf.f, dict);
     bundle.nba_size = static_cast<unsigned>(nba->num_states());
 

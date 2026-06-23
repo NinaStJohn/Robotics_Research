@@ -13,6 +13,15 @@ Robot::Pos Robot::position() const {
     return pos_;
 }
 
+double Robot::action_cost(Action a) const {
+    std::unordered_map<Action, double>::const_iterator it = action_costs_.find(a);
+    return (it != action_costs_.end()) ? it->second : 1.0;
+}
+
+void Robot::set_action_cost(Action a, double cost) {
+    action_costs_[a] = cost;
+}
+
 void Robot::set_position(Pos pos) {
     pos_ = pos;
 }
