@@ -165,14 +165,30 @@ void dynamic_visulizer(
                 DrawRectangle(px, py, cellSize, cellSize, Color{197, 247, 250, 128}); // blue — original
         }
 
-        // Highlight start/end
-        if (!path.empty()) {
-            const Pos s = path.front();
-            const Pos g = path.back();
-            DrawRectangle(margin + s.x * cellSize, margin + s.y * cellSize,
-                          cellSize, cellSize, Color{0, 200, 0, 100});   // start
-            DrawRectangle(margin + g.x * cellSize, margin + g.y * cellSize,
-                          cellSize, cellSize, Color{220, 0, 0, 100});   // goal
+        // Highlight labeled cells (a, b, etc.)
+        {
+            const Color label_colors[] = {
+                Color{0,   200,   0, 160},   // first label  — green
+                Color{220,   0,   0, 160},   // second label — red
+                Color{0,    80, 220, 160},   // third label  — blue
+                Color{200, 120,   0, 160},   // fourth label — orange
+            };
+            const std::vector<std::string> names = world.label_names();
+            for (int li = 0; li < (int)names.size(); ++li) {
+                const Color col = label_colors[li % 4];
+                for (int y = 0; y < h; ++y) {
+                    for (int x = 0; x < w; ++x) {
+                        if (!world.has_label({x, y}, names[li])) continue;
+                        const int px = margin + x * cellSize;
+                        const int py = margin + y * cellSize;
+                        DrawRectangle(px, py, cellSize, cellSize, col);
+                        DrawText(names[li].c_str(),
+                                 px + cellSize/2 - 5,
+                                 py + cellSize/2 - 8,
+                                 16, WHITE);
+                    }
+                }
+            }
         }
 
         // advance robot
