@@ -134,16 +134,20 @@ ProductBundle build_product_from_world_robot_ltl(
         if (ps && !ps->empty()) {
             std::unordered_map<unsigned, Pos>      prod_to_pos;
             std::unordered_map<unsigned, unsigned> prod_to_nba;
+            std::unordered_map<std::pair<Pos, unsigned>, unsigned, PosNbaHash> pos_nba_to_prod;
             for (unsigned s = 0; s < bundle.prod->num_states(); ++s) {
                 unsigned ts_s  = (*ps)[s].first;
                 unsigned nba_s = (*ps)[s].second;
                 prod_to_nba[s] = nba_s;
                 auto it = bundle.ts_state_to_pos.find(ts_s);
-                if (it != bundle.ts_state_to_pos.end())
+                if (it != bundle.ts_state_to_pos.end()) {
                     prod_to_pos[s] = it->second;
+                    pos_nba_to_prod[{it->second, nba_s}] = s;
+                }
             }
-            bundle.ts_state_to_pos  = std::move(prod_to_pos);
+            bundle.ts_state_to_pos   = std::move(prod_to_pos);
             bundle.prod_state_to_nba = std::move(prod_to_nba);
+            bundle.pos_nba_to_prod   = std::move(pos_nba_to_prod);
         } else {
             std::cerr << "ts.cpp: \"product-states\" property missing — "
                          "pos_of() will return garbage\n";

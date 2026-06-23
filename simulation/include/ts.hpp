@@ -24,6 +24,9 @@ struct ProductBundle {
     // After product construction these are keyed by PRODUCT state (not TS state).
     std::unordered_map<unsigned, Pos>       ts_state_to_pos;    // product_state -> grid Pos
     std::unordered_map<unsigned, unsigned>  prod_state_to_nba;  // product_state -> nba_state
+    // Reverse lookup: (grid Pos, nba_state) -> product_state. Used by replanning
+    // to find the product state for any (robot_position, nba_q) without rebuilding.
+    std::unordered_map<std::pair<Pos, unsigned>, unsigned, PosNbaHash> pos_nba_to_prod;
     std::unordered_map<Robot::Action, int>  act_ap;
     std::unordered_map<std::string, int>    world_ap;
 };

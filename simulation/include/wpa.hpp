@@ -28,6 +28,15 @@ public:
 
     unsigned init_state() const;
 
+    // Returns the NBA component of the product's initial state.
+    unsigned nba_init_state() const;
+
+    // Reverse lookup: given the robot's current grid position and its current
+    // NBA state, return the corresponding product state. Use this as the
+    // planning start for replanning instead of init_state(), so the robot's
+    // location stays a query-time parameter rather than baked into the product.
+    unsigned state_of(Pos p, unsigned nba_state) const;
+
     // Returns (dst_state, edge_cost) for every edge out of state_id.
     std::vector<std::pair<unsigned, double>>
     neighbors(unsigned state_id) const;

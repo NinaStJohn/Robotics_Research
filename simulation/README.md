@@ -47,7 +47,7 @@ TO-DO list
 
 NOTES:
     G: always
-    F eventually
+    F: eventually
     function to take product - twa_product(a,b)
 
 Tools:

@@ -45,6 +45,20 @@ unsigned WPA::init_state() const {
     return bundle_.prod->get_init_state_number();
 }
 
+unsigned WPA::nba_init_state() const {
+    return nba_state_of(bundle_.prod->get_init_state_number());
+}
+
+unsigned WPA::state_of(Pos p, unsigned nba_state) const {
+    auto it = bundle_.pos_nba_to_prod.find({p, nba_state});
+    if (it == bundle_.pos_nba_to_prod.end()) {
+        std::cerr << "WPA::state_of(): no product state for pos("
+                  << p.x << "," << p.y << ") nba=" << nba_state << "\n";
+        return UINT_MAX;
+    }
+    return it->second;
+}
+
 std::vector<WPA::Neighbor> 
 WPA::neighbors_ext(unsigned state_id) const
 {

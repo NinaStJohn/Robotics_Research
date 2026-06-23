@@ -42,7 +42,7 @@ int main() {
     std::string ltl = "G(a -> Fb) & G(b -> Fa)";
     
     GridWorld world(6, 6);
-    Turtlebot bot1({0,0});
+    Turtlebot bot1({1,0});
     world.set_label({0,0}, "a", true);
     world.set_label({5,5}, "b", true);
 
@@ -61,7 +61,9 @@ int main() {
     // world.setblocked(1.0);
 
 
-    // LTL graph
+
+
+    // LTL graph  --- BUG: INCLUDE THE ROBOT LOCATION IN THE BUILD - change the init!!!!!!!!!!!!
     ProductBundle bundle = build_product_from_world_robot_ltl(world, bot1, ltl);
 
     // wrap in WPA for weighted search
@@ -81,7 +83,8 @@ int main() {
     // LassoResult lasso = astar_find_path(wpa);
 
     DStarPlanner planner = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL);
-    LassoResult lasso = dstar_plan(wpa, planner, wpa.init_state());
+    unsigned start = wpa.state_of(bot1.position(), wpa.nba_init_state());
+    LassoResult lasso = dstar_plan(wpa, planner, start);
 
     std::cout << "Prefix length: " << lasso.prefix.size() << "\n";
     for (const Pos& p : lasso.prefix)
@@ -96,3 +99,14 @@ int main() {
 
     return 0;
 }
+
+
+
+
+/*
+- Fix the TS calculation to include the robot location
+- Do the Dstar replanning
+- RRT alg paper maybe or maybe not
+- adding new nodes psuedo code to product hypotetical
+            USE thE NBA
+*/
