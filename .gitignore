@@ -220,4 +220,7 @@ simulation/output_fail/*
 *.o
 *.out
 
-spot
+# spot is a standalone upstream clone (gitlab.lre.epita.fr/spot/spot), tracked
+# on its own `next` branch — not a submodule. Ignore it so pulling upstream
+# never dirties this repo.
+spot/
