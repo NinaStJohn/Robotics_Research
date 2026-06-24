@@ -68,6 +68,27 @@ static void build_flat_path(
     }
 }
 
+// Length of the prefix AFTER the same dedup build_flat_path applies, so it can
+// be used as an index into the deduped flat path (raw prefix.size() cannot).
+static int dedup_prefix_len(const LassoResult& lasso)
+{
+    std::vector<Pos> pp; std::vector<unsigned> pi;
+    LassoResult prefix_only{lasso.prefix, {}, lasso.prefix_ids, {}};
+    build_flat_path(prefix_only, pp, pi);
+    return (int)pp.size();
+}
+
+// Index at which the repeating loop restarts when the robot wraps around.
+// The prefix ends at the accepting anchor and the cycle begins at that SAME
+// anchor; build_flat_path dedups the shared cell into the prefix, so the loop
+// must restart at the anchor itself (= deduped prefix length - 1), not at the
+// first post-anchor cell. Using the raw length skips the anchor on every wrap.
+static int cycle_restart_index(const LassoResult& lasso)
+{
+    int n = dedup_prefix_len(lasso);
+    return n > 0 ? n - 1 : 0;
+}
+
 void dynamic_visulizer(
     GridWorld& world,
     const LassoResult& lasso,
@@ -96,10 +117,24 @@ void dynamic_visulizer(
     }
 
     int  step_index   = 0;
-    int  cycle_start  = (int)lasso.prefix.size();
+    int  cycle_start  = cycle_restart_index(lasso);
     bool replanned    = false;
+    int  replan_count = 0;          // advances the overlay color on each replan
     float elapsed     = 0.0f;
     const float step_interval = 0.5f;
+
+    // Distinct overlay colors cycled per replan, so overlapping replanned
+    // paths stay tellable apart. Red is reserved for a currently-blocked path
+    // and blue for the original (un-replanned) path; these are the rest.
+    const Color replan_palette[] = {
+        Color{255, 200,  80, 128},  // orange
+        Color{200, 120, 255, 128},  // purple
+        Color{ 80, 220, 200, 128},  // teal
+        Color{255, 140, 200, 128},  // pink
+        Color{180, 230,  90, 128},  // lime
+        Color{120, 200, 255, 128},  // sky
+    };
+    const int replan_palette_n = (int)(sizeof(replan_palette) / sizeof(replan_palette[0]));
 
     while (!WindowShouldClose()) {
 
@@ -144,9 +179,13 @@ void dynamic_visulizer(
 
                 if (!new_lasso.prefix.empty() || !new_lasso.cycle.empty()) {
                     build_flat_path(new_lasso, path, path_ids);
-                    cycle_start = (int)new_lasso.prefix.size();
-                    step_index  = std::min(step_index, (int)path.size() - 1);
+                    cycle_start = cycle_restart_index(new_lasso);
+                    // The replanned path starts AT the robot's current cell
+                    // (dstar_replan plans from current_state), so the robot is
+                    // at index 0. Keeping the old step_index would teleport it.
+                    step_index  = 0;
                     replanned   = true;
+                    replan_count++;
                     dbg("events.log") << "  [click] replan OK: new prefix="
                         << new_lasso.prefix.size() << " cycle=" << new_lasso.cycle.size() << "\n" << std::flush;
                 } else {
@@ -182,7 +221,8 @@ void dynamic_visulizer(
             if (needs_replan)
                 DrawRectangle(px, py, cellSize, cellSize, Color{252, 182, 182, 128}); // red — blocked
             else if (replanned)
-                DrawRectangle(px, py, cellSize, cellSize, Color{255, 200, 80,  128}); // orange — replanned
+                DrawRectangle(px, py, cellSize, cellSize,
+                              replan_palette[(replan_count - 1) % replan_palette_n]); // cycles per replan
             else
                 DrawRectangle(px, py, cellSize, cellSize, Color{197, 247, 250, 128}); // blue — original
         }

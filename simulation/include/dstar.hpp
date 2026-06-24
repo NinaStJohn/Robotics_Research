@@ -67,18 +67,33 @@ void update_vertex(
     unsigned sgoal
 );
 
+// drain_all=true  -> expand the whole field until U is empty (initial build:
+//                    fills g for every state with a path to s_imag).
+// drain_all=false -> stop once sstart is consistent (incremental replan repair).
 void compute_shortest_path(
     const WPA& wpa,
     DStarPlanner& planner,
     const std::unordered_map<unsigned, std::vector<unsigned>>& pred_map,
     unsigned sstart,
-    unsigned sgoal
+    unsigned sgoal,
+    bool drain_all = false
 );
 
 // Phase 2b: map changed grid cells to product state IDs
 std::vector<unsigned> detect_changed_states(
     const WPA& wpa,
     const std::vector<Pos>& changed_cells
+);
+
+// OPTION 1 (stopgap) suffix repair. Re-search, with a full A* cycle search,
+// any precomputed loop that a changed product state touches, refresh
+// cycle_cost/cycle_path, and couple the new loop cost back into the prefix
+// g-field. See MIGRATION_NOTES.md — LTL-D* keeps this incremental instead.
+void recompute_affected_cycles(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    const std::vector<unsigned>& changed_states,
+    unsigned current
 );
 
 // Handle dynamic updates and return new path

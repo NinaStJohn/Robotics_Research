@@ -11,14 +11,22 @@ SRC := $(wildcard src/*.cpp)
 MAIN_SRC := apps/main.cpp
 SIM_SRC  := apps/sim.cpp
 TEST_SRC := test.cpp
+REPLANTEST_SRC := apps/replan_test.cpp
+
+# Headless core: everything except the raylib visualizers
+HEADLESS_SRC := $(filter-out src/grid_vis.cpp src/LTL_vis.cpp, $(SRC))
 
 # Targets
 MAIN_TARGET := main
 SIM_TARGET  := sim
 TEST_TARGET := test
+REPLANTEST_TARGET := replantest
 
 all:
-	@echo "Use on of the following; 'make test', 'make main', 'make sim'"
+	@echo "Use on of the following; 'make test', 'make main', 'make sim', 'make replantest'"
+
+replantest: $(HEADLESS_SRC) $(REPLANTEST_SRC)
+	$(CXX) $(CXXFLAGS) $(HEADLESS_SRC) $(REPLANTEST_SRC) $(SPOT_FLAGS) -o $(REPLANTEST_TARGET).out
 
 main: $(SRC) $(MAIN_SRC)
 	$(CXX) $(CXXFLAGS) $(SRC) $(MAIN_SRC) $(SPOT_FLAGS) $(RAYLIB_FLAGS) -o $(MAIN_TARGET).out

@@ -175,7 +175,15 @@ LassoResult dstar_replan(
         update_vertex(wpa, planner, u, current);
     }
 
-    // {48} recompute shortest path
+    // OPTION 1 suffix repair (stopgap). Must run AFTER the edge weights above
+    // are applied (it re-searches on the updated graph) and BEFORE the prefix
+    // pass below, so the coupling's rhs(acc) updates are folded into the same
+    // compute_shortest_path. MIGRATION: this becomes Alg. 2 SUFFIXREPLAN per
+    // accepting state — see recompute_affected_cycles() and MIGRATION_NOTES.md.
+    recompute_affected_cycles(wpa, planner, changed_states, current);
+
+    // {48} recompute shortest path (prefix). Picks up both the changed real
+    // edges and the coupled virtual-edge (cycle-cost) updates in one pass.
     compute_shortest_path(wpa, planner, planner.pred_map, current, planner.s_imag);
 
     // dump g/rhs for every product state so we can see what survived the replan
