@@ -20,9 +20,6 @@
 // private functions
 bool path_is_blocked(const std::vector<Pos>& path, const GridWorld& world);
 
-// helper
-static int idx(int x, int y, int w) { return y * w + x; }
-
 /*
 Takes in run from LTL, vizluize run with path
  - highlights path in different color

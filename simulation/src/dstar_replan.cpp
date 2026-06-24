@@ -58,8 +58,8 @@ std::vector<unsigned> detect_changed_states(
 // ------------------------------------------------------------------
 
 void update_vertex(
-    const WPA& wpa,
-    DStarPlanner& planner,
+    [[maybe_unused]] const WPA& wpa,   // kept for API symmetry; needed once the
+    DStarPlanner& planner,             // heuristic in calculate_key uses positions
     unsigned u,
     unsigned sstart
 ){

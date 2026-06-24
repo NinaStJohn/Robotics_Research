@@ -61,7 +61,8 @@ void compute_shortest_path(
 // Helpers
 // ------------------------------------------------------------------
 
-static double euclidean(Pos a, Pos b) {
+// Reserved for the D* Lite heuristic (calculate_key currently uses h=0).
+[[maybe_unused]] static double euclidean(Pos a, Pos b) {
     double dx = static_cast<double>(a.x - b.x);
     double dy = static_cast<double>(a.y - b.y);
     return std::sqrt(dx*dx + dy*dy);
@@ -271,11 +272,11 @@ DStarPlanner make_planner(
 DStarKey calculate_key(
     const DStarPlanner& planner,
     unsigned s,
-    unsigned sstart
+    [[maybe_unused]] unsigned sstart   // used once h() becomes h(s, sstart)
 ){
     // key calculation (Figure 4, line 01')
 
-    double h = 0.0;   // TODO - replace with heuristic (eclusian)
+    double h = 0.0;   // TODO - replace with heuristic (euclidean(pos(s), pos(sstart)))
     double min_val = std::min(get_g(planner.g, s), get_g(planner.rhs, s));
     double key1 = min_val + h + planner.km;
     return {key1, min_val};
@@ -706,5 +707,6 @@ LassoResult astar_find_path(const WPA& wpa)
     for (unsigned id : cycle_result.path) std::cout << id << " ";
     std::cout << "\n";
 
-    return { to_pos(wpa, prefix_result.path), to_pos(wpa, cycle_result.path) };
+    return LassoResult{ to_pos(wpa, prefix_result.path),
+                        to_pos(wpa, cycle_result.path), {}, {} };
 }
