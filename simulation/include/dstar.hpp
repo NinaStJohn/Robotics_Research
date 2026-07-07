@@ -19,18 +19,29 @@ enum class ReplanMode { FULL_RECOMPUTE, DSTAR_INCREMENTAL };
     
 using DStarKey   = std::pair<double, double>;
 using DStarEntry = std::pair<DStarKey, unsigned>;
-struct DStarPlanner {
-    unsigned                                        s_imag;
-    std::unordered_map<unsigned, double>            cycle_cost;   // s_acc -> cost of optimal cycle
-    std::unordered_map<unsigned, std::vector<unsigned>>  cycle_path ;  // s_acc -> path IDs
+
+// One D* Lite search table: a goal node (rhs=0), its g/rhs estimates, its
+// open queue, key modifier, and the reverse graph it walks backwards over.
+// The prefix search (goal = s_imag) is one of these; each accepting state's
+// suffix search (goal = s^k_img, Option 2 — MIGRATION_NOTES.md) will be
+// another, sharing this same struct and the same engine functions below.
+struct DStarSearch {
+    unsigned                                        goal;
     std::unordered_map<unsigned, double>            g;            // D* cost estimates
     std::unordered_map<unsigned, double>            rhs;          // D* one-step lookahead
-    double                                          km;           // D* key modifier
+    double                                          km = 0.0;     // D* key modifier
     std::priority_queue<DStarEntry,                     // (lazy deletion, keyed on )
         std::vector<DStarEntry>,                        // Dstar lite stores key and state_id
         std::greater<DStarEntry>> U;
-    ReplanMode                                      mode;
     std::unordered_map<unsigned, std::vector<unsigned>> pred_map; // reverse graph
+};
+
+struct DStarPlanner {
+    DStarSearch                                     prefix;       // goal = s_imag
+    std::unordered_map<unsigned, DStarSearch>        suffix;       // goal = s^k_img, keyed by accepting state (Option 2, not yet populated)
+    std::unordered_map<unsigned, double>            cycle_cost;   // s_acc -> cost of optimal cycle
+    std::unordered_map<unsigned, std::vector<unsigned>>  cycle_path ;  // s_acc -> path IDs
+    ReplanMode                                      mode;
     unsigned                                        slast;        // robot pos at last replan
 };
 
@@ -55,14 +66,14 @@ double get_g(const std::unordered_map<unsigned, double>& m, unsigned s);
 double get_rhs(const std::unordered_map<unsigned, double>& m, unsigned s);
 
 DStarKey calculate_key(
-    const DStarPlanner& planner,
+    const DStarSearch& search,
     unsigned s,
     unsigned sstart
 );
 
 void update_vertex(
     const WPA& wpa,
-    DStarPlanner& planner,
+    DStarSearch& search,
     unsigned u,
     unsigned sgoal
 );
@@ -70,9 +81,15 @@ void update_vertex(
 // drain_all=true  -> expand the whole field until U is empty (initial build:
 //                    fills g for every state with a path to s_imag).
 // drain_all=false -> stop once sstart is consistent (incremental replan repair).
+// `planner` is still needed here (rather than just `search`) because edge_cost()
+// reads planner.cycle_cost / planner.prefix.goal for the virtual cycle-closing
+// edge. Once suffix searches (Option 2) exist, edge_cost's goal-check needs to
+// generalize from "is this the prefix goal" to "is this *this search's* goal" —
+// see MIGRATION_NOTES.md.
 void compute_shortest_path(
     const WPA& wpa,
     DStarPlanner& planner,
+    DStarSearch& search,
     const std::unordered_map<unsigned, std::vector<unsigned>>& pred_map,
     unsigned sstart,
     unsigned sgoal,

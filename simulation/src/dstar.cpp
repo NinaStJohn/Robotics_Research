@@ -44,13 +44,14 @@ static PathResult astar_cycle_search(const WPA& wpa, unsigned start,
 
 // forward declaration (definition below; signature also in dstar.hpp)
 DStarKey calculate_key(
-    const DStarPlanner& planner,
+    const DStarSearch& search,
     unsigned s, unsigned sstart
 );
 // forward declaration (definition below; signature also in dstar.hpp)
 void compute_shortest_path(
     const WPA& wpa,
     DStarPlanner& planner,
+    DStarSearch& search,
     const std::unordered_map<unsigned, std::vector<unsigned>>& pred_map,
     unsigned sstart,
     unsigned sgoal,
@@ -123,7 +124,7 @@ DStarPlanner make_planner(
 ){
     DStarPlanner planner;
     unsigned init = wpa.init_state();
-    planner.s_imag = wpa.prod()->num_states();
+    planner.prefix.goal = wpa.prod()->num_states();
 
     // loop over all product states
     //
@@ -218,22 +219,22 @@ DStarPlanner make_planner(
     // propagates g to nobody, leaving the whole field at infinity.
     for (unsigned s = 0; s < wpa.prod()->num_states(); ++s) {
         if (wpa.is_accepting(s) && planner.cycle_cost.count(s) > 0) {
-            pred_map[planner.s_imag].push_back(s);
+            pred_map[planner.prefix.goal].push_back(s);
         }
     }
 
     // init D* tables
     // g and rhs == inf bc uninit
-    planner.rhs[planner.s_imag] = 0;
-    planner.km = 0;
+    planner.prefix.rhs[planner.prefix.goal] = 0;
+    planner.prefix.km = 0;
 
     // Seed only the goal s_imag. The accepting states are no longer pre-seeded:
     // their rhs is derived during propagation via the virtual edge above, which
     // keeps a single consistent g-field instead of two disconnected ones.
-    planner.U.push({{0.0, 0.0}, planner.s_imag});
+    planner.prefix.U.push({{0.0, 0.0}, planner.prefix.goal});
 
     // run D* lite — full build so g is filled for the entire product
-    compute_shortest_path(wpa, planner, pred_map, init, planner.s_imag, true);
+    compute_shortest_path(wpa, planner, planner.prefix, pred_map, init, planner.prefix.goal, true);
 
     // DEBUG: dump the initial g-field so we can confirm it filled the product
     {
@@ -244,20 +245,20 @@ DStarPlanner make_planner(
                 << " nba=" << wpa.nba_state_of(s)
                 << " pos=(" << wpa.pos_of(s).x << "," << wpa.pos_of(s).y << ")"
                 << " accepting=" << wpa.is_accepting(s)
-                << " g=" << get_g(planner.g, s)
-                << " rhs=" << get_rhs(planner.rhs, s)
+                << " g=" << get_g(planner.prefix.g, s)
+                << " rhs=" << get_rhs(planner.prefix.rhs, s)
                 << " preds=" << (pred_map.count(s) ? pred_map.at(s).size() : 0)
                 << "\n";
         }
-        log << "s_imag=" << planner.s_imag
-            << " g=" << get_g(planner.g, planner.s_imag)
-            << " rhs=" << get_rhs(planner.rhs, planner.s_imag)
-            << " preds=" << (pred_map.count(planner.s_imag) ? pred_map.at(planner.s_imag).size() : 0)
+        log << "s_imag=" << planner.prefix.goal
+            << " g=" << get_g(planner.prefix.g, planner.prefix.goal)
+            << " rhs=" << get_rhs(planner.prefix.rhs, planner.prefix.goal)
+            << " preds=" << (pred_map.count(planner.prefix.goal) ? pred_map.at(planner.prefix.goal).size() : 0)
             << "\n" << std::flush;
     }
 
     // save states for recalculation
-    planner.pred_map = pred_map;
+    planner.prefix.pred_map = pred_map;
     planner.slast    = init;
     planner.mode     = mode;
     return planner;
@@ -270,15 +271,15 @@ DStarPlanner make_planner(
 // ------------------------------------------------------------------
 
 DStarKey calculate_key(
-    const DStarPlanner& planner,
+    const DStarSearch& search,
     unsigned s,
     [[maybe_unused]] unsigned sstart   // used once h() becomes h(s, sstart)
 ){
     // key calculation (Figure 4, line 01')
 
     double h = 0.0;   // TODO - replace with heuristic (euclidean(pos(s), pos(sstart)))
-    double min_val = std::min(get_g(planner.g, s), get_g(planner.rhs, s));
-    double key1 = min_val + h + planner.km;
+    double min_val = std::min(get_g(search.g, s), get_g(search.rhs, s));
+    double key1 = min_val + h + search.km;
     return {key1, min_val};
 }
 
@@ -292,13 +293,16 @@ DStarKey calculate_key(
 // into the accepting states (and from there across the whole product).
 // Returns +inf when no such edge exists.
 // ------------------------------------------------------------------
+// STEP 1 note: still special-cases only the prefix goal (s_imag). Step 2/3
+// generalizes this to any search's own goal (s^k_img per accepting state)
+// once suffix searches (Option 2) exist — see MIGRATION_NOTES.md.
 static double edge_cost(
     const WPA& wpa,
     const DStarPlanner& planner,
     unsigned from,
     unsigned to
 ){
-    if (to == planner.s_imag) {
+    if (to == planner.prefix.goal) {
         std::unordered_map<unsigned, double>::const_iterator it = planner.cycle_cost.find(from);
         if (wpa.is_accepting(from) && it != planner.cycle_cost.end())
             return it->second;
@@ -313,34 +317,35 @@ static double edge_cost(
 void compute_shortest_path(
     const WPA& wpa,
     DStarPlanner& planner,
+    DStarSearch& search,
     const std::unordered_map<unsigned, std::vector<unsigned>>& pred_map,
     unsigned sstart,
     unsigned sgoal,
     bool drain_all
 ){
-    while (!planner.U.empty()) {
-        DStarEntry top_entry = planner.U.top();
+    while (!search.U.empty()) {
+        DStarEntry top_entry = search.U.top();
         DStarKey kold = top_entry.first;
         unsigned u = top_entry.second;
-        planner.U.pop();
+        search.U.pop();
 
-        DStarKey knew = calculate_key(planner, u, sstart);
+        DStarKey knew = calculate_key(search, u, sstart);
 
         // Line 14-15: lazy deletion — re-insert if key is stale
         if (kold < knew) {
-            planner.U.push({knew, u});
+            search.U.push({knew, u});
             continue;
         }
 
-        double g_u = get_g(planner.g, u);
-        double rhs_u = get_rhs(planner.rhs, u);
+        double g_u = get_g(search.g, u);
+        double rhs_u = get_rhs(search.rhs, u);
 
         // {09} lazy deletion: state became consistent after being inserted — skip
         if (g_u == rhs_u) continue;
 
         // Line 16-21: overconsistent (g > rhs) — propagate improvements
         if (g_u > rhs_u) {
-            planner.g[u] = rhs_u;
+            search.g[u] = rhs_u;
 
             // Update predecessors
             std::unordered_map<unsigned, std::vector<unsigned>>::const_iterator pred_it = pred_map.find(u);
@@ -352,17 +357,17 @@ void compute_shortest_path(
                         // NOT the stale g_u (== inf), which would block all
                         // propagation and leave the whole field at infinity.
                         double cost_s_to_u = edge_cost(wpa, planner, s, u);
-                        double new_rhs = std::min(get_rhs(planner.rhs, s), cost_s_to_u + rhs_u);
-                        planner.rhs[s] = new_rhs;
+                        double new_rhs = std::min(get_rhs(search.rhs, s), cost_s_to_u + rhs_u);
+                        search.rhs[s] = new_rhs;
                     }
-                    update_vertex(wpa, planner, s, sstart);
+                    update_vertex(wpa, search, s, sstart);
                 }
             }
         }
         // Line 22-28: underconsistent (g < rhs) — revert and recalculate
         else {
             double gold = g_u;
-            planner.g[u] = std::numeric_limits<double>::infinity();
+            search.g[u] = std::numeric_limits<double>::infinity();
 
             // Update predecessors of u and u itself
             std::unordered_map<unsigned, std::vector<unsigned>>::const_iterator pred_it = pred_map.find(u);
@@ -377,20 +382,20 @@ void compute_shortest_path(
                 double cost_s_to_u = edge_cost(wpa, planner, s, u);
 
                 // {26-27}: if rhs was built on the old cost, recompute it
-                if (get_rhs(planner.rhs, s) == cost_s_to_u + gold) {
+                if (get_rhs(search.rhs, s) == cost_s_to_u + gold) {
                     if (s != sgoal) {
                         double new_rhs = std::numeric_limits<double>::infinity();
                         for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
-                            new_rhs = std::min(new_rhs, nb.cost + get_g(planner.g, nb.dst));
+                            new_rhs = std::min(new_rhs, nb.cost + get_g(search.g, nb.dst));
                         }
                         if (wpa.is_accepting(s) && planner.cycle_cost.count(s) > 0) {
-                            new_rhs = std::min(new_rhs, planner.cycle_cost[s] + get_g(planner.g, sgoal));
+                            new_rhs = std::min(new_rhs, planner.cycle_cost[s] + get_g(search.g, sgoal));
                         }
-                        planner.rhs[s] = new_rhs;
+                        search.rhs[s] = new_rhs;
                     }
                 }
                 // {28}: UpdateVertex called for ALL predecessors, not just those satisfying {26}
-                update_vertex(wpa, planner, s, sstart);
+                update_vertex(wpa, search, s, sstart);
             }
         }
 
@@ -399,12 +404,12 @@ void compute_shortest_path(
         // path to s_imag. For incremental replanning we stop as soon as
         // sstart is consistent (repair only the affected region).
         if (!drain_all) {
-            DStarKey key_start = calculate_key(planner, sstart, sstart);
-            double g_start = get_g(planner.g, sstart);
-            double rhs_start = get_rhs(planner.rhs, sstart);
+            DStarKey key_start = calculate_key(search, sstart, sstart);
+            double g_start = get_g(search.g, sstart);
+            double rhs_start = get_rhs(search.rhs, sstart);
 
-            if (planner.U.empty()) break;
-            DStarKey top_key = planner.U.top().first;
+            if (search.U.empty()) break;
+            DStarKey top_key = search.U.top().first;
             if (top_key >= key_start && g_start == rhs_start) break;
         }
     }
@@ -489,14 +494,14 @@ void recompute_affected_cycles(
         if (new_cost != old_cost) {
             double new_rhs = std::numeric_limits<double>::infinity();
             for (const WPA::Neighbor& nb : wpa.neighbors_ext(acc)) {
-                new_rhs = std::min(new_rhs, nb.cost + get_g(planner.g, nb.dst));
+                new_rhs = std::min(new_rhs, nb.cost + get_g(planner.prefix.g, nb.dst));
             }
             if (planner.cycle_cost.count(acc) > 0) {
                 new_rhs = std::min(new_rhs,
-                    planner.cycle_cost.at(acc) + get_g(planner.g, planner.s_imag));
+                    planner.cycle_cost.at(acc) + get_g(planner.prefix.g, planner.prefix.goal));
             }
-            planner.rhs[acc] = new_rhs;
-            update_vertex(wpa, planner, acc, current);
+            planner.prefix.rhs[acc] = new_rhs;
+            update_vertex(wpa, planner.prefix, acc, current);
         }
     }
 }
@@ -533,7 +538,7 @@ LassoResult dstar_plan(
         // loop: check each neighbor
         for (const WPA::Neighbor& nb : wpa.neighbors_ext(current)){
             // cost to reach this neighbor via its g-value
-            double c = nb.cost + get_g(planner.g, nb.dst);
+            double c = nb.cost + get_g(planner.prefix.g, nb.dst);
 
             // check to see what is the best so far
             if (c < best_cost){
@@ -550,7 +555,7 @@ LassoResult dstar_plan(
                 std::cout << "  nb=" << nb.dst
                           << " pos=(" << wpa.pos_of(nb.dst).x << "," << wpa.pos_of(nb.dst).y << ")"
                           << " edge_cost=" << nb.cost
-                          << " g[nb]=" << get_g(planner.g, nb.dst)
+                          << " g[nb]=" << get_g(planner.prefix.g, nb.dst)
                           << (nb.dst == current ? " [self-loop]" : "") << "\n";
             }
             return {};  // error: no valid neighbor found

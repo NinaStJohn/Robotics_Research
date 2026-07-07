@@ -160,9 +160,9 @@ static bool validate_lasso(
 // ------------------------------------------------------------------
 static bool cross_check(WPA& wpa, const DStarPlanner& inc, unsigned current,
                         double& g_inc, double& g_full, DStarPlanner& fresh_out) {
-    g_inc = get_g(inc.g, current);
+    g_inc = get_g(inc.prefix.g, current);
     fresh_out = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL);
-    g_full = get_g(fresh_out.g, current);
+    g_full = get_g(fresh_out.prefix.g, current);
     return g_inc == g_full;   // exact: values are integer-valued or both inf
 }
 

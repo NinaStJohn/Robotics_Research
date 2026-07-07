@@ -114,3 +114,13 @@ from full A* to incremental D*.
   We implicitly use β = 1 (virtual-edge cost = raw loop cost).
 - **Infeasible-task replanning (§IV)**: violation metric `DIST`, auxiliary
   `g_aux`/key with γ≫ weighting for minimally-violating plans. Not started.
+- **Suffix search count scaling**: Option 2 maintains one live `DStarSearch`
+  (own `pred_map`, `g`/`rhs`, `U`) per accepting state. Today the number of
+  accepting states is driven almost entirely by the grid world's size (one
+  per cell-ish), which is small and fine. If a future LTL formula makes the
+  NBA itself much larger (more accepting states per cell, from richer/more
+  formulas), the per-accepting-state suffix count could get expensive. Not
+  worth solving now — the planned fix is region abstraction (root
+  `README.md`, "Region abstraction (hierarchical planning)"), which collapses
+  many product states into fewer, so revisit suffix-count cost only after
+  that lands, not before.

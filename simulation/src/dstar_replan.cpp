@@ -59,20 +59,20 @@ std::vector<unsigned> detect_changed_states(
 
 void update_vertex(
     [[maybe_unused]] const WPA& wpa,   // kept for API symmetry; needed once the
-    DStarPlanner& planner,             // heuristic in calculate_key uses positions
+    DStarSearch& search,                // heuristic in calculate_key uses positions
     unsigned u,
     unsigned sstart
 ){
-    double g_u   = get_g(planner.g,   u);
-    double rhs_u = get_rhs(planner.rhs, u);
+    double g_u   = get_g(search.g,   u);
+    double rhs_u = get_rhs(search.rhs, u);
 
     // {07}/{08}: inconsistent — insert/update with new key
     if (g_u != rhs_u) {
-        DStarKey key = calculate_key(planner, u, sstart);
+        DStarKey key = calculate_key(search, u, sstart);
         std::cout << "[DBG update_vertex] state=" << u
                   << " g=" << g_u << " rhs=" << rhs_u
                   << " key=(" << key.first << "," << key.second << ")\n";
-        planner.U.push({key, u});
+        search.U.push({key, u});
     }
     // {09}: consistent — lazy deletion handles removal on pop
 }
@@ -107,7 +107,7 @@ LassoResult dstar_replan(
     }
 
     // {38} km += h(slast, sstart) — h=0 for now (no heuristic yet)
-    planner.km += 0.0;
+    planner.prefix.km += 0.0;
     // {39} slast = sstart
     planner.slast = current;
 
@@ -130,17 +130,17 @@ LassoResult dstar_replan(
         // {42} update edge cost in WPA
         wpa.set_state_exit_weight(u, new_cost);
 
-        if (u == planner.s_imag) continue;
+        if (u == planner.prefix.goal) continue;
 
-        double rhs_before = get_rhs(planner.rhs, u);
-        double g_before   = get_g(planner.g, u);
+        double rhs_before = get_rhs(planner.prefix.rhs, u);
+        double g_before   = get_g(planner.prefix.g, u);
 
         // {43-44} cost decreased — rhs(u) might improve
         if (cold > new_cost) {
             for (const WPA::Neighbor& nb : wpa.neighbors_ext(u)) {
-                double candidate = nb.cost + get_g(planner.g, nb.dst);
-                if (candidate < get_rhs(planner.rhs, u)) {
-                    planner.rhs[u] = candidate;
+                double candidate = nb.cost + get_g(planner.prefix.g, nb.dst);
+                if (candidate < get_rhs(planner.prefix.rhs, u)) {
+                    planner.prefix.rhs[u] = candidate;
                 }
             }
         }
@@ -148,12 +148,12 @@ LassoResult dstar_replan(
         else {
             double new_rhs = std::numeric_limits<double>::infinity();
             for (const WPA::Neighbor& nb : wpa.neighbors_ext(u)) {
-                new_rhs = std::min(new_rhs, nb.cost + get_g(planner.g, nb.dst));
+                new_rhs = std::min(new_rhs, nb.cost + get_g(planner.prefix.g, nb.dst));
             }
             if (wpa.is_accepting(u) && planner.cycle_cost.count(u) > 0) {
-                new_rhs = std::min(new_rhs, planner.cycle_cost[u] + get_g(planner.g, planner.s_imag));
+                new_rhs = std::min(new_rhs, planner.cycle_cost[u] + get_g(planner.prefix.g, planner.prefix.goal));
             }
-            planner.rhs[u] = new_rhs;
+            planner.prefix.rhs[u] = new_rhs;
         }
 
         // log the edge update for this changed state
@@ -162,17 +162,17 @@ LassoResult dstar_replan(
             << " nba=" << wpa.nba_state_of(u)
             << " branch=" << (cold > new_cost ? "DECREASE" : "INCREASE")
             << " g=" << g_before
-            << " rhs:" << rhs_before << "->" << get_rhs(planner.rhs, u) << "\n";
+            << " rhs:" << rhs_before << "->" << get_rhs(planner.prefix.rhs, u) << "\n";
         for (const WPA::Neighbor& nb : wpa.neighbors_ext(u)) {
             log << "      succ " << nb.dst
                 << " pos=(" << wpa.pos_of(nb.dst).x << "," << wpa.pos_of(nb.dst).y << ")"
                 << " nba=" << wpa.nba_state_of(nb.dst)
                 << " c=" << nb.cost
-                << " g[succ]=" << get_g(planner.g, nb.dst) << "\n";
+                << " g[succ]=" << get_g(planner.prefix.g, nb.dst) << "\n";
         }
 
         // {47} update_vertex
-        update_vertex(wpa, planner, u, current);
+        update_vertex(wpa, planner.prefix, u, current);
     }
 
     // OPTION 1 suffix repair (stopgap). Must run AFTER the edge weights above
@@ -184,13 +184,13 @@ LassoResult dstar_replan(
 
     // {48} recompute shortest path (prefix). Picks up both the changed real
     // edges and the coupled virtual-edge (cycle-cost) updates in one pass.
-    compute_shortest_path(wpa, planner, planner.pred_map, current, planner.s_imag);
+    compute_shortest_path(wpa, planner, planner.prefix, planner.prefix.pred_map, current, planner.prefix.goal);
 
     // dump g/rhs for every product state so we can see what survived the replan
     log << "[replan] g/rhs after compute_shortest_path (current=" << current << "):\n";
     for (unsigned s = 0; s < wpa.prod()->num_states(); ++s) {
-        double gs  = get_g(planner.g, s);
-        double rhs = get_rhs(planner.rhs, s);
+        double gs  = get_g(planner.prefix.g, s);
+        double rhs = get_rhs(planner.prefix.rhs, s);
         log << "  s=" << s
             << " pos=(" << wpa.pos_of(s).x << "," << wpa.pos_of(s).y << ")"
             << " nba=" << wpa.nba_state_of(s)
