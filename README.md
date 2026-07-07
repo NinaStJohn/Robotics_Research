@@ -12,8 +12,10 @@ heterogeneous multi-robot systems.
 ## Status
 
 - **Prefix replanning**: implemented and **validated** (test suite: `make tests`).
-- **Suffix (cycle) replanning**: Option-1 stopgap (full A\* re-search of touched
-  loops); Option-2 incremental `SUFFIXREPLAN` pending — see the migration notes.
+- **Suffix (cycle) replanning**: both implemented and validated — Option-1
+  stopgap (full A\* re-search of touched loops) and Option-2 paper-faithful
+  incremental `SUFFIXREPLAN`, selectable via `SuffixMode` (default: Option 1)
+  — see the migration notes for how they compare.
 - **Known limitation** (validated): cells blocked *before* the product is built
   have no graph node and cannot be unblocked/traversed at runtime; toggle
   obstacles by clicking for reversible behavior. Details in `simulation/README.md`.

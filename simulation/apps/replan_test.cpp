@@ -7,9 +7,9 @@
 
       --suffix=  : which SuffixMode to run replans under (default: option1).
                    option1 = stopgap full A* cycle re-search (recompute_affected_cycles).
-                   option2 = paper-faithful incremental SUFFIXREPLAN — falls back to
-                             option1 with a log line until MIGRATION_NOTES.md Steps 2-3
-                             land. Can appear anywhere among the args.
+                   option2 = paper-faithful incremental SUFFIXREPLAN (one D* Lite
+                             search per accepting state, repaired incrementally).
+                             Can appear anywhere among the args.
       robot_step : index along the current path the robot sits at when the
                    first obstacle is toggled (0 = path start).
       <bx> <by>  : grid cell to toggle (block if free, unblock if blocked).

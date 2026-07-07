@@ -135,26 +135,8 @@ LassoResult dstar_replan(
         double rhs_before = get_rhs(planner.prefix.rhs, u);
         double g_before   = get_g(planner.prefix.g, u);
 
-        // {43-44} cost decreased — rhs(u) might improve
-        if (cold > new_cost) {
-            for (const WPA::Neighbor& nb : wpa.neighbors_ext(u)) {
-                double candidate = nb.cost + get_g(planner.prefix.g, nb.dst);
-                if (candidate < get_rhs(planner.prefix.rhs, u)) {
-                    planner.prefix.rhs[u] = candidate;
-                }
-            }
-        }
-        // {45-46} cost increased — recompute rhs(u) from all successors
-        else {
-            double new_rhs = std::numeric_limits<double>::infinity();
-            for (const WPA::Neighbor& nb : wpa.neighbors_ext(u)) {
-                new_rhs = std::min(new_rhs, nb.cost + get_g(planner.prefix.g, nb.dst));
-            }
-            if (wpa.is_accepting(u) && planner.cycle_cost.count(u) > 0) {
-                new_rhs = std::min(new_rhs, planner.cycle_cost[u] + get_g(planner.prefix.g, planner.prefix.goal));
-            }
-            planner.prefix.rhs[u] = new_rhs;
-        }
+        // {43-46} — shared with suffixreplan()'s per-accepting-state repair.
+        repair_rhs_for_changed_edge(wpa, planner, planner.prefix, u, cold, new_cost);
 
         // log the edge update for this changed state
         log << "  [changed] u=" << u
@@ -181,16 +163,12 @@ LassoResult dstar_replan(
     // compute_shortest_path.
     //
     // suffix_mode lets Option 1 (stopgap, full A* re-search) and Option 2
-    // (paper-faithful incremental SUFFIXREPLAN) be A/B'd on the same scenario
-    // — see SuffixMode in dstar.hpp. OPTION2_INCREMENTAL isn't implemented
-    // yet (MIGRATION_NOTES.md Steps 2-3); selecting it currently falls back
-    // to OPTION1_ASTAR so the toggle is wired up ahead of that landing.
+    // (paper-faithful incremental SUFFIXREPLAN) be A/B'd on the same
+    // scenario — see SuffixMode in dstar.hpp.
     switch (planner.suffix_mode) {
         case SuffixMode::OPTION2_INCREMENTAL:
-            std::cout << "[DBG suffix_mode] OPTION2_INCREMENTAL requested but"
-                         " not yet implemented — falling back to OPTION1_ASTAR."
-                         " See MIGRATION_NOTES.md.\n";
-            [[fallthrough]];
+            suffixreplan(wpa, planner, changed_states, cold, new_cost, current);
+            break;
         case SuffixMode::OPTION1_ASTAR:
         default:
             recompute_affected_cycles(wpa, planner, changed_states, current);

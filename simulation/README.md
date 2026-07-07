@@ -26,7 +26,7 @@ accepting loop). When the world changes, only the affected part is replanned.
 | `robot` | robot state / start position |
 | `ts` | builds the TS from the world+robot and the product automaton (`build_product_from_world_robot_ltl`) |
 | `wpa` | **Weighted Product Automaton**: wraps the product, attaches edge weights, exposes `neighbors_ext`, `pos_of`, `is_accepting`, `set_state_exit_weight` |
-| `dstar` | D* Lite core: `make_planner` (initial full build), `compute_shortest_path`, `dstar_plan` (lasso reconstruction), `astar_cycle_search` (suffix loops), `recompute_affected_cycles` (Option-1 suffix repair) |
+| `dstar` | D* Lite core: `make_planner` (initial full build, either suffix strategy), `compute_shortest_path` (shared engine, prefix or any suffix search), `dstar_plan` (lasso reconstruction), `astar_cycle_search`/`recompute_affected_cycles` (Option-1 suffix), `suffixreplan` (Option-2 incremental suffix repair) |
 | `dstar_replan` | `detect_changed_states` (cells → product states) and `dstar_replan` (incremental edge update + prefix repair + cycle repair) |
 | `grid_vis` | raylib animator: draws the grid, animates the robot along the lasso, handles click-to-toggle obstacles, per-replan colors |
 | `LTL_vis` | DOT export of NBA / TS / product for inspection |
@@ -52,9 +52,12 @@ make replantest && ./replantest.out 0 5 2     # headless: robot at step 0, toggl
 make tests && ./replan_tests.out      # exit code = number of failing checks
 ```
 
-Headless harness args: `./replantest.out <robot_step> <bx> <by> [<bx2> <by2> …]`
+Headless harness args: `./replantest.out [--suffix=option1|option2] <robot_step> <bx> <by> [<bx2> <by2> …]`
 — place the robot at `<robot_step>` on the path, then toggle each cell with a
-full replan between. Test suite args: `./replan_tests.out [fuzz_seed] [fuzz_steps]`.
+full replan between; `--suffix=` (default `option1`) picks which suffix repair
+strategy to run under, so the same scripted scenario can be A/B'd against both.
+Test suite args: `./replan_tests.out [fuzz_seed] [fuzz_steps]` — runs the whole
+battery once under each `SuffixMode`.
 
 ## Debug output (`output/`, gitignored)
 
@@ -66,10 +69,13 @@ clicks). The planner also prints the prefix g-descent and the cycle to stdout.
 ## Status / what's next
 
 - **Prefix replanning**: implemented, matches LTL-D* (verified by the test suite).
-- **Suffix (cycle) replanning**: **Option 1** stopgap (full A\* re-search of
-  touched loops). Correct but not incremental, and it misses unblocks that
-  *enable a new* loop — see [MIGRATION_NOTES.md](MIGRATION_NOTES.md) for the
-  Option-2 (paper-faithful `SUFFIXREPLAN`) migration plan.
+- **Suffix (cycle) replanning**: both strategies implemented, selectable via
+  `SuffixMode` (`dstar.hpp`) — **Option 1** (stopgap full A\* re-search of
+  touched loops; correct but not incremental, misses unblocks that enable a
+  new loop) and **Option 2** (paper-faithful `SUFFIXREPLAN`, one incremental
+  D* Lite search per accepting state, closes the Option-1 gap). Option 1
+  remains the default; see [MIGRATION_NOTES.md](MIGRATION_NOTES.md) for how
+  they compare and how to A/B them.
 - **Not started**: β suffix weighting; infeasible-task replanning (LTL-D\* §IV).
 
 ## Known limitations / gotchas (validated)

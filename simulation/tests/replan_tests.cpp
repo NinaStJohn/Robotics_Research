@@ -159,9 +159,10 @@ static bool validate_lasso(
 // edge weights. inf == inf is a valid (consistent infeasible) agreement.
 // ------------------------------------------------------------------
 static bool cross_check(WPA& wpa, const DStarPlanner& inc, unsigned current,
-                        double& g_inc, double& g_full, DStarPlanner& fresh_out) {
+                        double& g_inc, double& g_full, DStarPlanner& fresh_out,
+                        SuffixMode suffix_mode) {
     g_inc = get_g(inc.prefix.g, current);
-    fresh_out = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL);
+    fresh_out = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL, suffix_mode);
     g_full = get_g(fresh_out.prefix.g, current);
     return g_inc == g_full;   // exact: values are integer-valued or both inf
 }
@@ -255,7 +256,8 @@ struct Toggle { int x, y; };
 // Returns the number of failed checks in this scenario.
 static int run_scenario(const std::string& name,
                         const std::vector<Toggle>& toggles,
-                        int robot_steps) {
+                        int robot_steps,
+                        SuffixMode suffix_mode = SuffixMode::OPTION1_ASTAR) {
     int fails = 0;
     std::cerr << "TEST [" << name << "]\n";
 
@@ -263,7 +265,7 @@ static int run_scenario(const std::string& name,
     Turtlebot bot({0, 0});
     ProductBundle bundle = build_product_from_world_robot_ltl(world, bot, LTL);
     WPA wpa(std::move(bundle));
-    DStarPlanner planner = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL);
+    DStarPlanner planner = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL, suffix_mode);
 
     unsigned start = wpa.state_of(bot.position(), wpa.nba_init_state());
     LassoResult lasso = dstar_plan(wpa, planner, start);
@@ -294,7 +296,7 @@ static int run_scenario(const std::string& name,
         // Tier 2 first: does incremental agree with a full rebuild?
         double g_inc = 0, g_full = 0;
         DStarPlanner fresh;
-        bool agree = cross_check(wpa, planner, current, g_inc, g_full, fresh);
+        bool agree = cross_check(wpa, planner, current, g_inc, g_full, fresh, suffix_mode);
         std::string tag = std::string("toggle ") + cell(c) +
                           (now_blocked ? " BLOCK" : " FREE");
         if (!agree) {
@@ -329,7 +331,8 @@ static int run_scenario(const std::string& name,
 // Random fuzz: random toggles, both tiers checked each step.
 // Skips the two label cells so we mostly exercise navigation reroutes.
 // ------------------------------------------------------------------
-static int run_fuzz(unsigned seed, int steps) {
+static int run_fuzz(unsigned seed, int steps,
+                    SuffixMode suffix_mode = SuffixMode::OPTION1_ASTAR) {
     int fails = 0;
     std::cerr << "TEST [fuzz seed=" << seed << " steps=" << steps << "]\n";
 
@@ -337,7 +340,7 @@ static int run_fuzz(unsigned seed, int steps) {
     Turtlebot bot({0, 0});
     ProductBundle bundle = build_product_from_world_robot_ltl(world, bot, LTL);
     WPA wpa(std::move(bundle));
-    DStarPlanner planner = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL);
+    DStarPlanner planner = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL, suffix_mode);
     unsigned current = wpa.state_of(bot.position(), wpa.nba_init_state());
     Pos robot_cell = wpa.pos_of(current);
     dstar_plan(wpa, planner, current);
@@ -357,7 +360,7 @@ static int run_fuzz(unsigned seed, int steps) {
 
         double g_inc = 0, g_full = 0;
         DStarPlanner fresh;
-        bool agree = cross_check(wpa, planner, current, g_inc, g_full, fresh);
+        bool agree = cross_check(wpa, planner, current, g_inc, g_full, fresh, suffix_mode);
         if (!agree) {
             std::cerr << "  FAIL step " << i << " toggle " << cell(c)
                       << (now_blocked ? " BLOCK" : " FREE")
@@ -423,6 +426,19 @@ int main(int argc, char** argv) {
     unsigned seed  = (argc > 1) ? (unsigned)std::stoul(argv[1]) : 1u;
     int      steps = (argc > 2) ? std::stoi(argv[2]) : 60;
     fails += run_fuzz(seed, steps);
+
+    // Tier 5 — same battery again under Option 2 (SUFFIXREPLAN). This is the
+    // acceptance test for MIGRATION_NOTES.md: the fuzz gap above (an unblock
+    // that opens a cheaper/new loop, missed by Option 1's "touched" test)
+    // should NOT reproduce here.
+    std::cerr << "\n=== re-running battery under SuffixMode::OPTION2_INCREMENTAL ===\n";
+    fails += run_scenario("[opt2] block on-path (5,2)",        {{5, 2}},          0, SuffixMode::OPTION2_INCREMENTAL);
+    fails += run_scenario("[opt2] block cycle-only (3,1)",     {{3, 1}},          0, SuffixMode::OPTION2_INCREMENTAL);
+    fails += run_scenario("[opt2] block off-path (2,3)",       {{2, 3}},          0, SuffixMode::OPTION2_INCREMENTAL);
+    fails += run_scenario("[opt2] block then unblock (5,2)",   {{5, 2}, {5, 2}},  0, SuffixMode::OPTION2_INCREMENTAL);
+    fails += run_scenario("[opt2] multi-block right column",   {{5, 2}, {5, 1}, {5, 3}}, 0, SuffixMode::OPTION2_INCREMENTAL);
+    fails += run_scenario("[opt2] mid-path replan @step5",     {{5, 2}},          5, SuffixMode::OPTION2_INCREMENTAL);
+    fails += run_fuzz(seed, steps, SuffixMode::OPTION2_INCREMENTAL);
 
     std::cout.rdbuf(old_cout);
     std::cerr << "\nSUMMARY: " << (fails == 0 ? "ALL PASS" : "FAILURES")

@@ -22,9 +22,9 @@ enum class ReplanMode { FULL_RECOMPUTE, DSTAR_INCREMENTAL };
 // OPTION1_ASTAR:        stopgap — full A* cycle re-search of touched loops
 //                       (recompute_affected_cycles). Correct, not incremental,
 //                       misses some unblocks (see MIGRATION_NOTES.md).
-// OPTION2_INCREMENTAL:  paper-faithful SUFFIXREPLAN, one D* Lite search per
-//                       accepting state. NOT YET IMPLEMENTED — selecting this
-//                       currently falls back to OPTION1_ASTAR with a log line.
+// OPTION2_INCREMENTAL:  paper-faithful SUFFIXREPLAN (Alg. 1/2) — one D* Lite
+//                       search per accepting state, repaired incrementally
+//                       (suffixreplan()) instead of fully re-searched.
 enum class SuffixMode { OPTION1_ASTAR, OPTION2_INCREMENTAL };
 
 using DStarKey   = std::pair<double, double>;
@@ -134,6 +134,36 @@ void recompute_affected_cycles(
     const WPA& wpa,
     DStarPlanner& planner,
     const std::vector<unsigned>& changed_states,
+    unsigned current
+);
+
+// Shared {43-46}-style rhs repair for one state `u` whose edge cost just
+// changed from `cold` to `new_cost`, against a single search's own g/rhs
+// (works for the prefix search or any suffix search — the virtual
+// goal-closing edge is resolved generically via edge_cost() inside).
+// Exposed (not static) so both dstar_replan.cpp's prefix loop and
+// suffixreplan()'s per-accepting-state loop share one implementation.
+void repair_rhs_for_changed_edge(
+    const WPA& wpa,
+    const DStarPlanner& planner,
+    DStarSearch& search,
+    unsigned u,
+    double cold,
+    double new_cost
+);
+
+// OPTION 2 (paper-faithful) suffix repair — Alg. 2 SUFFIXREPLAN. For every
+// accepting state's own suffix search: apply the already-updated real edge
+// costs (repair_rhs_for_changed_edge), repair incrementally
+// (compute_shortest_path, drain_all=false, sstart=acc), read back
+// cycle_cost/cycle_path, then run the same COUPLING step as
+// recompute_affected_cycles (Alg. 3 lines 14-15).
+void suffixreplan(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    const std::vector<unsigned>& changed_states,
+    double cold,
+    double new_cost,
     unsigned current
 );
 

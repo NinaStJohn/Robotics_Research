@@ -616,6 +616,119 @@ void recompute_affected_cycles(
     }
 }
 
+// ------------------------------------------------------------------
+// repair_rhs_for_changed_edge  (Figure 4, lines 43-46 — one search's view)
+//
+// `u`'s own outgoing real edges just changed cost from `cold` to `new_cost`
+// (dstar_replan already called wpa.set_state_exit_weight before this runs).
+// Shared by the prefix's replan loop (dstar_replan.cpp) and suffixreplan()
+// below — identical logic, parameterized on which DStarSearch it repairs.
+// ------------------------------------------------------------------
+void repair_rhs_for_changed_edge(
+    const WPA& wpa,
+    const DStarPlanner& planner,
+    DStarSearch& search,
+    unsigned u,
+    double cold,
+    double new_cost
+){
+    if (u == search.goal) return;
+
+    // {43-44} cost decreased — rhs(u) might improve via u's own (now
+    // cheaper) real edges. The virtual goal-closing edge's cost didn't
+    // change from this event, so it's already folded into the prior rhs
+    // and doesn't need re-checking here.
+    if (cold > new_cost) {
+        for (const WPA::Neighbor& nb : wpa.neighbors_ext(u)) {
+            double candidate = nb.cost + get_g(search.g, nb.dst);
+            if (candidate < get_rhs(search.rhs, u)) {
+                search.rhs[u] = candidate;
+            }
+        }
+    }
+    // {45-46} cost increased — recompute rhs(u) from scratch over every
+    // current successor, real or virtual (can't just take a min anymore:
+    // the candidate rhs was built on may itself be the one that got worse).
+    else {
+        double new_rhs = std::numeric_limits<double>::infinity();
+        for (const WPA::Neighbor& nb : wpa.neighbors_ext(u)) {
+            new_rhs = std::min(new_rhs, nb.cost + get_g(search.g, nb.dst));
+        }
+        double virt = edge_cost(wpa, planner, search, u, search.goal);
+        if (virt != std::numeric_limits<double>::infinity()) {
+            new_rhs = std::min(new_rhs, virt + get_g(search.g, search.goal));
+        }
+        search.rhs[u] = new_rhs;
+    }
+}
+
+// ------------------------------------------------------------------
+// suffixreplan  (OPTION 2 — Alg. 2 SUFFIXREPLAN)
+//
+// Unlike recompute_affected_cycles' "touched" test, this applies the changed
+// edge costs to EVERY accepting state's suffix search unconditionally — the
+// real graph is shared across all of them, so a change can affect any
+// search's rhs field regardless of whether it sat on that search's last-known
+// cycle_path. compute_shortest_path then only does incremental work where
+// something actually went inconsistent, so this stays cheap in practice
+// while also catching the Option-1 gap (an unblock that opens a cheaper, or
+// brand-new, loop that wasn't on any previously-recorded path).
+// ------------------------------------------------------------------
+void suffixreplan(
+    const WPA& wpa,
+    DStarPlanner& planner,
+    const std::vector<unsigned>& changed_states,
+    double cold,
+    double new_cost,
+    unsigned current
+){
+    for (std::unordered_map<unsigned, DStarSearch>::iterator it = planner.suffix.begin();
+         it != planner.suffix.end(); ++it) {
+        unsigned acc = it->first;
+        DStarSearch& sfx = it->second;
+
+        double old_cost = planner.cycle_cost.count(acc) > 0
+            ? planner.cycle_cost.at(acc)
+            : std::numeric_limits<double>::infinity();
+
+        for (unsigned u : changed_states) {
+            repair_rhs_for_changed_edge(wpa, planner, sfx, u, cold, new_cost);
+            update_vertex(wpa, sfx, u, acc);
+        }
+
+        // repair incrementally, sstart = acc (this search's own anchor, not
+        // the robot's position — each suffix search repairs itself locally).
+        compute_shortest_path(wpa, planner, sfx, sfx.pred_map, acc, sfx.goal, false);
+
+        double refreshed_cost = get_g(sfx.g, acc);
+        if (refreshed_cost != std::numeric_limits<double>::infinity()) {
+            planner.cycle_cost[acc] = refreshed_cost;
+            planner.cycle_path[acc] = suffix_cycle_path(wpa, planner, sfx);
+        } else {
+            planner.cycle_cost.erase(acc);
+            planner.cycle_path.erase(acc);
+        }
+
+        std::cout << "[DBG suffixreplan] anchor " << acc << " cost " << old_cost
+                  << " -> " << refreshed_cost
+                  << (refreshed_cost == std::numeric_limits<double>::infinity() ? " (LOOP LOST)" : "") << "\n";
+
+        // COUPLING (Alg. 3, lines 14-15) — identical to recompute_affected_cycles.
+        if (refreshed_cost != old_cost) {
+            double new_rhs = std::numeric_limits<double>::infinity();
+            for (const WPA::Neighbor& nb : wpa.neighbors_ext(acc)) {
+                new_rhs = std::min(new_rhs, nb.cost + get_g(planner.prefix.g, nb.dst));
+            }
+            if (planner.cycle_cost.count(acc) > 0) {
+                new_rhs = std::min(new_rhs,
+                    planner.cycle_cost.at(acc) + get_g(planner.prefix.g, planner.prefix.goal));
+            }
+            planner.prefix.rhs[acc] = new_rhs;
+            update_vertex(wpa, planner.prefix, acc, current);
+        }
+    }
+}
+
 LassoResult dstar_plan(
     const WPA& wpa,
     const DStarPlanner& planner,
