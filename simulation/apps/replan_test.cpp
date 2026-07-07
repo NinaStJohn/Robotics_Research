@@ -3,16 +3,22 @@
     so obstacle toggles can be scripted from the command line instead of clicked.
 
     Usage:
-        ./replantest.out <robot_step> <bx> <by> [<bx2> <by2> ...]
+        ./replantest.out [--suffix=option1|option2] <robot_step> <bx> <by> [<bx2> <by2> ...]
 
+      --suffix=  : which SuffixMode to run replans under (default: option1).
+                   option1 = stopgap full A* cycle re-search (recompute_affected_cycles).
+                   option2 = paper-faithful incremental SUFFIXREPLAN — falls back to
+                             option1 with a log line until MIGRATION_NOTES.md Steps 2-3
+                             land. Can appear anywhere among the args.
       robot_step : index along the current path the robot sits at when the
                    first obstacle is toggled (0 = path start).
       <bx> <by>  : grid cell to toggle (block if free, unblock if blocked).
                    Multiple cells are applied in sequence, each followed by a
                    full replan, so you can reproduce multi-click scenarios.
 
-    Example:  ./replantest.out 0 2 3        # block (2,3) with robot at start
-              ./replantest.out 6 2 1 2 0    # at step 6, block (2,1) then (2,0)
+    Example:  ./replantest.out 0 2 3                       # block (2,3) with robot at start
+              ./replantest.out 6 2 1 2 0                    # at step 6, block (2,1) then (2,0)
+              ./replantest.out --suffix=option2 6 2 1 2 0   # same, under Option 2
 
     Mirrors the world setup in apps/sim.cpp. Same logs are written to output/.
 */
@@ -74,8 +80,38 @@ static void print_path(
     std::cout << "\n";
 }
 
+// Pulls "--suffix=option1"/"--suffix=option2" out of args (in place, wherever
+// it appears) and returns the SuffixMode it selects, defaulting to OPTION1_ASTAR.
+static SuffixMode parse_suffix_mode(std::vector<std::string>& args) {
+    SuffixMode mode = SuffixMode::OPTION1_ASTAR;
+    for (size_t i = 0; i < args.size(); ) {
+        const std::string prefix = "--suffix=";
+        if (args[i].rfind(prefix, 0) == 0) {
+            std::string value = args[i].substr(prefix.size());
+            if (value == "option2") {
+                mode = SuffixMode::OPTION2_INCREMENTAL;
+            } else if (value == "option1") {
+                mode = SuffixMode::OPTION1_ASTAR;
+            } else {
+                std::cerr << "unknown --suffix value '" << value
+                          << "', defaulting to option1\n";
+            }
+            args.erase(args.begin() + i);
+        } else {
+            ++i;
+        }
+    }
+    return mode;
+}
+
 int main(int argc, char** argv) {
     std::filesystem::create_directory("output");
+
+    std::vector<std::string> args(argv + 1, argv + argc);
+    SuffixMode suffix_mode = parse_suffix_mode(args);
+    std::cout << "[CLI] suffix_mode = "
+              << (suffix_mode == SuffixMode::OPTION2_INCREMENTAL ? "OPTION2_INCREMENTAL" : "OPTION1_ASTAR")
+              << "\n";
 
     // -- identical world to apps/sim.cpp --
     std::string ltl = "G(a -> Fb) & G(b -> Fa)";
@@ -94,7 +130,7 @@ int main(int argc, char** argv) {
     ProductBundle bundle = build_product_from_world_robot_ltl(world, bot1, ltl);
     WPA wpa(std::move(bundle));
 
-    DStarPlanner planner = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL);
+    DStarPlanner planner = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL, suffix_mode);
     unsigned start = wpa.state_of(bot1.position(), wpa.nba_init_state());
     LassoResult lasso = dstar_plan(wpa, planner, start);
 
@@ -117,17 +153,17 @@ int main(int argc, char** argv) {
     }
     print_path("INITIAL PATH", path, cycle_start);
 
-    // -- parse scripted scenario --
-    int robot_step = (argc > 1) ? std::stoi(argv[1]) : 0;
+    // -- parse scripted scenario (args has already had --suffix=... removed) --
+    int robot_step = (!args.empty()) ? std::stoi(args[0]) : 0;
     int step_index = std::max(0, std::min(robot_step, (int)path.size() - 1));
     std::cout << "\nrobot placed at step " << step_index
               << " -> state " << path_ids[step_index]
               << " pos=(" << path[step_index].x << "," << path[step_index].y << ")\n";
 
-    // remaining argv are (x y) pairs
-    for (int i = 2; i + 1 < argc; i += 2) {
-        int bx = std::stoi(argv[i]);
-        int by = std::stoi(argv[i + 1]);
+    // remaining args are (x y) pairs
+    for (size_t i = 1; i + 1 < args.size(); i += 2) {
+        int bx = std::stoi(args[i]);
+        int by = std::stoi(args[i + 1]);
         Pos cell{bx, by};
 
         if (!world.in_bounds(cell)) {

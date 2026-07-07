@@ -102,7 +102,7 @@ LassoResult dstar_replan(
     ReplanMode mode
 ){
     if (mode == ReplanMode::FULL_RECOMPUTE) {
-        planner = make_planner(wpa, mode);
+        planner = make_planner(wpa, mode, planner.suffix_mode);
         return dstar_plan(wpa, planner, current);
     }
 
@@ -175,12 +175,27 @@ LassoResult dstar_replan(
         update_vertex(wpa, planner.prefix, u, current);
     }
 
-    // OPTION 1 suffix repair (stopgap). Must run AFTER the edge weights above
-    // are applied (it re-searches on the updated graph) and BEFORE the prefix
-    // pass below, so the coupling's rhs(acc) updates are folded into the same
-    // compute_shortest_path. MIGRATION: this becomes Alg. 2 SUFFIXREPLAN per
-    // accepting state — see recompute_affected_cycles() and MIGRATION_NOTES.md.
-    recompute_affected_cycles(wpa, planner, changed_states, current);
+    // Suffix repair. Must run AFTER the edge weights above are applied (it
+    // re-searches/repairs on the updated graph) and BEFORE the prefix pass
+    // below, so the coupling's rhs(acc) updates are folded into the same
+    // compute_shortest_path.
+    //
+    // suffix_mode lets Option 1 (stopgap, full A* re-search) and Option 2
+    // (paper-faithful incremental SUFFIXREPLAN) be A/B'd on the same scenario
+    // — see SuffixMode in dstar.hpp. OPTION2_INCREMENTAL isn't implemented
+    // yet (MIGRATION_NOTES.md Steps 2-3); selecting it currently falls back
+    // to OPTION1_ASTAR so the toggle is wired up ahead of that landing.
+    switch (planner.suffix_mode) {
+        case SuffixMode::OPTION2_INCREMENTAL:
+            std::cout << "[DBG suffix_mode] OPTION2_INCREMENTAL requested but"
+                         " not yet implemented — falling back to OPTION1_ASTAR."
+                         " See MIGRATION_NOTES.md.\n";
+            [[fallthrough]];
+        case SuffixMode::OPTION1_ASTAR:
+        default:
+            recompute_affected_cycles(wpa, planner, changed_states, current);
+            break;
+    }
 
     // {48} recompute shortest path (prefix). Picks up both the changed real
     // edges and the coupled virtual-edge (cycle-cost) updates in one pass.

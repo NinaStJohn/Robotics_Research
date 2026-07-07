@@ -16,7 +16,17 @@ struct LassoResult {
 LassoResult astar_find_path(const WPA& wpa);
 
 enum class ReplanMode { FULL_RECOMPUTE, DSTAR_INCREMENTAL };
-    
+
+// Which suffix (cycle) repair strategy to use on replan — lets the two be
+// A/B'd on the same scenario instead of only comparable via git history.
+// OPTION1_ASTAR:        stopgap — full A* cycle re-search of touched loops
+//                       (recompute_affected_cycles). Correct, not incremental,
+//                       misses some unblocks (see MIGRATION_NOTES.md).
+// OPTION2_INCREMENTAL:  paper-faithful SUFFIXREPLAN, one D* Lite search per
+//                       accepting state. NOT YET IMPLEMENTED — selecting this
+//                       currently falls back to OPTION1_ASTAR with a log line.
+enum class SuffixMode { OPTION1_ASTAR, OPTION2_INCREMENTAL };
+
 using DStarKey   = std::pair<double, double>;
 using DStarEntry = std::pair<DStarKey, unsigned>;
 
@@ -42,6 +52,7 @@ struct DStarPlanner {
     std::unordered_map<unsigned, double>            cycle_cost;   // s_acc -> cost of optimal cycle
     std::unordered_map<unsigned, std::vector<unsigned>>  cycle_path ;  // s_acc -> path IDs
     ReplanMode                                      mode;
+    SuffixMode                                      suffix_mode;  // OPTION1_ASTAR or OPTION2_INCREMENTAL
     unsigned                                        slast;        // robot pos at last replan
 };
 
@@ -51,8 +62,9 @@ pre-compute cycles,
 compute first cycle
 */
 DStarPlanner make_planner(
-    const WPA& wpa, 
-    ReplanMode mode
+    const WPA& wpa,
+    ReplanMode mode,
+    SuffixMode suffix_mode = SuffixMode::OPTION1_ASTAR
 );
 
 LassoResult dstar_plan(

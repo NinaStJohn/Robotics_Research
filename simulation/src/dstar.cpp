@@ -120,7 +120,8 @@ static void to_pos_ids(
 
 DStarPlanner make_planner(
     const WPA& wpa,
-    ReplanMode mode
+    ReplanMode mode,
+    SuffixMode suffix_mode
 ){
     DStarPlanner planner;
     unsigned init = wpa.init_state();
@@ -129,10 +130,14 @@ DStarPlanner make_planner(
     // loop over all product states
     //
     // MIGRATION: this one-shot A* cycle precompute is the OPTION 1 counterpart
-    // of LTL-D* Alg. 1 SUFFIXINITIALIZE. To migrate, build a per-accepting-state
-    // DStarSearch here (imaginary node s^k_img, predecessors of s wired to it)
-    // and run compute_shortest_path on it, so the suffix can later be repaired
-    // incrementally instead of fully re-searched. See MIGRATION_NOTES.md.
+    // of LTL-D* Alg. 1 SUFFIXINITIALIZE. It currently runs unconditionally
+    // (SuffixMode::OPTION2_INCREMENTAL's SUFFIXINITIALIZE isn't implemented
+    // yet — see recompute_affected_cycles()/dstar_replan() for where
+    // suffix_mode is actually branched on). To migrate, build a
+    // per-accepting-state DStarSearch here (imaginary node s^k_img,
+    // predecessors of s wired to it) and run compute_shortest_path on it, so
+    // the suffix can later be repaired incrementally instead of fully
+    // re-searched. See MIGRATION_NOTES.md.
     for (unsigned s = 0; s < wpa.prod()->num_states(); s++){
         if (wpa.is_accepting(s)){
             // cycle search from this accepting state — true closed cycle only,
@@ -259,8 +264,9 @@ DStarPlanner make_planner(
 
     // save states for recalculation
     planner.prefix.pred_map = pred_map;
-    planner.slast    = init;
-    planner.mode     = mode;
+    planner.slast       = init;
+    planner.mode        = mode;
+    planner.suffix_mode = suffix_mode;
     return planner;
 }
 
