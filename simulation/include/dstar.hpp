@@ -36,6 +36,19 @@ using DStarEntry = std::pair<DStarKey, unsigned>;
 // suffix search (goal = s^k_img, Option 2 — MIGRATION_NOTES.md) will be
 // another, sharing this same struct and the same engine functions below.
 struct DStarSearch {
+    // PREFIX: goal = s_imag; the virtual edge INTO goal is <accepting state,
+    //   cost=cycle_cost[that state]> (added once the cycle is known).
+    // SUFFIX: goal = s^k_img for one specific accepting state (redirect_target);
+    //   the virtual edge INTO goal is <p, cost = real edge cost p->redirect_target>
+    //   for every real predecessor p of redirect_target — i.e. "step back into
+    //   the anchor" is redirected to closing this search's loop instead.
+    // Both are ADDED edges alongside the real graph, never replacing a real
+    // edge, so edge_cost() only needs a per-`from` special case, not graph
+    // surgery. See MIGRATION_NOTES.md Alg. 1 (SUFFIXINITIALIZE).
+    enum class SearchKind { PREFIX, SUFFIX };
+
+    SearchKind                                      kind = SearchKind::PREFIX;
+    unsigned                                         redirect_target = 0; // SUFFIX only: the anchor (acc)
     unsigned                                        goal;
     std::unordered_map<unsigned, double>            g;            // D* cost estimates
     std::unordered_map<unsigned, double>            rhs;          // D* one-step lookahead
@@ -94,10 +107,9 @@ void update_vertex(
 //                    fills g for every state with a path to s_imag).
 // drain_all=false -> stop once sstart is consistent (incremental replan repair).
 // `planner` is still needed here (rather than just `search`) because edge_cost()
-// reads planner.cycle_cost / planner.prefix.goal for the virtual cycle-closing
-// edge. Once suffix searches (Option 2) exist, edge_cost's goal-check needs to
-// generalize from "is this the prefix goal" to "is this *this search's* goal" —
-// see MIGRATION_NOTES.md.
+// reads planner.cycle_cost for the PREFIX virtual edge; `search` supplies its
+// own goal/kind/redirect_target so the same engine runs prefix or any suffix
+// search unchanged.
 void compute_shortest_path(
     const WPA& wpa,
     DStarPlanner& planner,

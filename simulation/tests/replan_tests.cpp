@@ -197,6 +197,57 @@ static void diagnose(const WPA& wpa, const DStarPlanner& inc,
 }
 
 // ------------------------------------------------------------------
+// SUFFIXINITIALIZE parity check (Option 2 vs Option 1, initial build only)
+//
+// Option 2's make_planner path (dstar.cpp: one D* Lite search per accepting
+// state, goal = s^k_img) is meant to compute EXACTLY the same cycle_cost as
+// Option 1's astar_cycle_search — it's just a different way to get the same
+// number, one that's incrementally repairable later (Step 3). This doesn't
+// exercise replanning at all, just the two initial-build strategies against
+// each other on the same WPA.
+// ------------------------------------------------------------------
+static int check_suffix_init_parity(const std::string& name, GridWorld world) {
+    int fails = 0;
+    std::cerr << "TEST [suffix-init parity: " << name << "]\n";
+
+    Turtlebot bot({0, 0});
+    ProductBundle bundle = build_product_from_world_robot_ltl(world, bot, LTL);
+    WPA wpa(std::move(bundle));
+
+    DStarPlanner opt1 = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL, SuffixMode::OPTION1_ASTAR);
+    DStarPlanner opt2 = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL, SuffixMode::OPTION2_INCREMENTAL);
+
+    std::set<unsigned> anchors;
+    for (std::unordered_map<unsigned, double>::const_iterator it = opt1.cycle_cost.begin();
+         it != opt1.cycle_cost.end(); ++it) anchors.insert(it->first);
+    for (std::unordered_map<unsigned, double>::const_iterator it = opt2.cycle_cost.begin();
+         it != opt2.cycle_cost.end(); ++it) anchors.insert(it->first);
+
+    for (unsigned acc : anchors) {
+        double inf = std::numeric_limits<double>::infinity();
+        double c1 = opt1.cycle_cost.count(acc) ? opt1.cycle_cost.at(acc) : inf;
+        double c2 = opt2.cycle_cost.count(acc) ? opt2.cycle_cost.at(acc) : inf;
+        if (c1 != c2) {
+            std::cerr << "  FAIL anchor " << acc << " " << cell(wpa.pos_of(acc))
+                      << ": option1 cycle_cost=" << c1 << " option2=" << c2 << "\n";
+            ++fails;
+            continue;
+        }
+        bool has_path1 = opt1.cycle_path.count(acc) > 0;
+        bool has_path2 = opt2.cycle_path.count(acc) > 0;
+        if (has_path1 != has_path2) {
+            std::cerr << "  FAIL anchor " << acc << " " << cell(wpa.pos_of(acc))
+                      << ": cycle_path presence disagrees (option1=" << has_path1
+                      << " option2=" << has_path2 << ")\n";
+            ++fails;
+        }
+    }
+
+    if (fails == 0) std::cerr << "  PASS (" << anchors.size() << " anchor(s) agree)\n";
+    return fails;
+}
+
+// ------------------------------------------------------------------
 // Scenario runner
 // ------------------------------------------------------------------
 struct Toggle { int x, y; };
@@ -344,6 +395,21 @@ int main(int argc, char** argv) {
     std::streambuf* old_cout = std::cout.rdbuf(sink.rdbuf());
 
     int fails = 0;
+
+    // Tier 0 — SUFFIXINITIALIZE (Option 2) vs astar_cycle_search (Option 1)
+    // parity, on a couple of differently-shaped worlds.
+    fails += check_suffix_init_parity("open 6x6", make_world());
+    {
+        GridWorld obstacles = make_world();
+        obstacles.set_blocked({1, 1}, true);
+        obstacles.set_blocked({1, 2}, true);
+        obstacles.set_blocked({1, 3}, true);
+        obstacles.set_blocked({0, 3}, true);
+        obstacles.set_blocked({2, 2}, true);
+        obstacles.set_blocked({3, 3}, true);
+        obstacles.set_blocked({4, 4}, true);
+        fails += check_suffix_init_parity("apps/sim.cpp obstacle layout", obstacles);
+    }
 
     // Tier 4 — pinned regression scenarios (robot at path start unless noted)
     fails += run_scenario("block on-path (5,2)",        {{5, 2}},          0);

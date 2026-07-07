@@ -57,6 +57,22 @@ void compute_shortest_path(
     unsigned sgoal,
     bool drain_all
 );
+// forward declaration (definition below)
+static double edge_cost(
+    const WPA& wpa,
+    const DStarPlanner& planner,
+    const DStarSearch& search,
+    unsigned from,
+    unsigned to
+);
+// g-descent from a converged suffix search back to its own goal (s^k_img),
+// producing the closed-cycle path in the same format astar_cycle_search
+// returns (path starts at the anchor, does NOT repeat it at the end).
+static std::vector<unsigned> suffix_cycle_path(
+    const WPA& wpa,
+    const DStarPlanner& planner,
+    const DStarSearch& sfx
+);
 
 // ------------------------------------------------------------------
 // Helpers
@@ -126,50 +142,87 @@ DStarPlanner make_planner(
     DStarPlanner planner;
     unsigned init = wpa.init_state();
     planner.prefix.goal = wpa.prod()->num_states();
+    planner.prefix.kind = DStarSearch::SearchKind::PREFIX;
 
-    // loop over all product states
-    //
-    // MIGRATION: this one-shot A* cycle precompute is the OPTION 1 counterpart
-    // of LTL-D* Alg. 1 SUFFIXINITIALIZE. It currently runs unconditionally
-    // (SuffixMode::OPTION2_INCREMENTAL's SUFFIXINITIALIZE isn't implemented
-    // yet — see recompute_affected_cycles()/dstar_replan() for where
-    // suffix_mode is actually branched on). To migrate, build a
-    // per-accepting-state DStarSearch here (imaginary node s^k_img,
-    // predecessors of s wired to it) and run compute_shortest_path on it, so
-    // the suffix can later be repaired incrementally instead of fully
-    // re-searched. See MIGRATION_NOTES.md.
-    for (unsigned s = 0; s < wpa.prod()->num_states(); s++){
-        if (wpa.is_accepting(s)){
-            // cycle search from this accepting state — true closed cycle only,
-            // so accepting states with no self-cycle (e.g. the init state) get
-            // no cycle_cost and are not used as lasso anchors.
-            PathResult result = astar_cycle_search(wpa, s, true);
-            if (!result.path.empty()) {
-                planner.cycle_path[s] = result.path;
-                planner.cycle_cost[s] = result.cost;
-
-                // DEBUG: print cycle info
-                std::cout << "[DBG] accepting state " << s << " at (" << wpa.pos_of(s).x
-                          << "," << wpa.pos_of(s).y << "): cycle length=" << result.path.size()
-                          << " cost=" << result.cost << "\n";
-                std::cout << "      path: ";
-                for (unsigned id : result.path) {
-                    std::cout << id << "(" << wpa.pos_of(id).x << "," << wpa.pos_of(id).y << ") ";
-                }
-                std::cout << "\n";
-            } else {
-                std::cout << "[DBG] accepting state " << s << " at (" << wpa.pos_of(s).x
-                          << "," << wpa.pos_of(s).y << "): NO CYCLE FOUND\n";
-            }
-        }
-    }
-
-    // build reverse graph
-    // this avoids messing with spot internals
+    // build reverse graph (real edges only — this avoids messing with spot
+    // internals). Needed before the cycle precompute below: SUFFIXINITIALIZE
+    // (Option 2) reads PRED(acc) straight out of this map.
     std::unordered_map<unsigned, std::vector<unsigned>> pred_map;
     for (unsigned s = 0; s < wpa.prod()->num_states(); s++) {
         for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
             pred_map[nb.dst].push_back(s);
+        }
+    }
+
+    // Cycle precompute: for each accepting state, find its optimal closed
+    // cycle (cycle_cost/cycle_path). Two interchangeable strategies —
+    // see SuffixMode in dstar.hpp / MIGRATION_NOTES.md.
+    if (suffix_mode == SuffixMode::OPTION1_ASTAR) {
+        // OPTION 1 (stopgap): one-shot full A* cycle search per accepting state.
+        for (unsigned s = 0; s < wpa.prod()->num_states(); s++){
+            if (wpa.is_accepting(s)){
+                // cycle search from this accepting state — true closed cycle only,
+                // so accepting states with no self-cycle (e.g. the init state) get
+                // no cycle_cost and are not used as lasso anchors.
+                PathResult result = astar_cycle_search(wpa, s, true);
+                if (!result.path.empty()) {
+                    planner.cycle_path[s] = result.path;
+                    planner.cycle_cost[s] = result.cost;
+
+                    // DEBUG: print cycle info
+                    std::cout << "[DBG] accepting state " << s << " at (" << wpa.pos_of(s).x
+                              << "," << wpa.pos_of(s).y << "): cycle length=" << result.path.size()
+                              << " cost=" << result.cost << "\n";
+                    std::cout << "      path: ";
+                    for (unsigned id : result.path) {
+                        std::cout << id << "(" << wpa.pos_of(id).x << "," << wpa.pos_of(id).y << ") ";
+                    }
+                    std::cout << "\n";
+                } else {
+                    std::cout << "[DBG] accepting state " << s << " at (" << wpa.pos_of(s).x
+                              << "," << wpa.pos_of(s).y << "): NO CYCLE FOUND\n";
+                }
+            }
+        }
+    } else {
+        // OPTION 2 (Alg. 1 SUFFIXINITIALIZE): one D* Lite search per accepting
+        // state, goal = a fresh imaginary node s^k_img. PRED(acc) gets a
+        // virtual edge straight to s^k_img (edge_cost() adds it), so running
+        // this search to convergence makes g[acc] the cycle cost — the same
+        // quantity astar_cycle_search returns, just incrementally repairable
+        // later (Step 3 / recompute_affected_cycles) instead of thrown away.
+        unsigned next_suffix_goal = wpa.prod()->num_states() + 1; // +1: past prefix's s_imag
+        for (unsigned acc = 0; acc < wpa.prod()->num_states(); acc++) {
+            if (!wpa.is_accepting(acc)) continue;
+
+            DStarSearch& sfx = planner.suffix[acc];
+            sfx.kind            = DStarSearch::SearchKind::SUFFIX;
+            sfx.redirect_target = acc;
+            sfx.goal             = next_suffix_goal++;
+
+            sfx.pred_map = pred_map;   // real reverse graph, copied per search
+            std::unordered_map<unsigned, std::vector<unsigned>>::const_iterator pit = pred_map.find(acc);
+            if (pit != pred_map.end()) {
+                sfx.pred_map[sfx.goal] = pit->second;   // PRED(acc) -> s^k_img
+            }
+
+            sfx.rhs[sfx.goal] = 0;
+            sfx.U.push({{0.0, 0.0}, sfx.goal});
+
+            compute_shortest_path(wpa, planner, sfx, sfx.pred_map, acc, sfx.goal, true);
+
+            double cost = get_g(sfx.g, acc);
+            if (cost != std::numeric_limits<double>::infinity()) {
+                planner.cycle_cost[acc] = cost;
+                planner.cycle_path[acc] = suffix_cycle_path(wpa, planner, sfx);
+
+                std::cout << "[DBG suffix2] accepting state " << acc << " at (" << wpa.pos_of(acc).x
+                          << "," << wpa.pos_of(acc).y << "): cycle length="
+                          << planner.cycle_path[acc].size() << " cost=" << cost << "\n";
+            } else {
+                std::cout << "[DBG suffix2] accepting state " << acc << " at (" << wpa.pos_of(acc).x
+                          << "," << wpa.pos_of(acc).y << "): NO CYCLE FOUND\n";
+            }
         }
     }
 
@@ -292,32 +345,80 @@ DStarKey calculate_key(
 // ------------------------------------------------------------------
 // edge_cost
 //
-// Cost of the directed edge (from -> to), including the *virtual*
-// cycle-closing edge from an accepting state to s_imag whose cost is
-// the precomputed cycle_cost. neighbors_ext() does not know about
-// s_imag, so this wrapper is what lets g propagate from s_imag back
-// into the accepting states (and from there across the whole product).
+// Cost of the directed edge (from -> to), including whichever *virtual*
+// goal-closing edge belongs to `search`:
+//   PREFIX search: accepting state -> s_imag, cost = cycle_cost[from].
+//   SUFFIX search: any real predecessor of search.redirect_target (the
+//     anchor this search closes a loop for) -> s^k_img, cost = the real
+//     edge cost from `from` to that anchor (Alg. 1 SUFFIXINITIALIZE).
+// Both are ADDED edges, not replacements — the real edge (e.g. p->acc)
+// stays queryable too, it's just never cheaper than routing through the
+// virtual one, since g(goal) == 0 while g(acc) (mid-search) is >= 0.
 // Returns +inf when no such edge exists.
 // ------------------------------------------------------------------
-// STEP 1 note: still special-cases only the prefix goal (s_imag). Step 2/3
-// generalizes this to any search's own goal (s^k_img per accepting state)
-// once suffix searches (Option 2) exist — see MIGRATION_NOTES.md.
 static double edge_cost(
     const WPA& wpa,
     const DStarPlanner& planner,
+    const DStarSearch& search,
     unsigned from,
     unsigned to
 ){
-    if (to == planner.prefix.goal) {
-        std::unordered_map<unsigned, double>::const_iterator it = planner.cycle_cost.find(from);
-        if (wpa.is_accepting(from) && it != planner.cycle_cost.end())
-            return it->second;
+    if (to == search.goal) {
+        if (search.kind == DStarSearch::SearchKind::PREFIX) {
+            std::unordered_map<unsigned, double>::const_iterator it = planner.cycle_cost.find(from);
+            if (wpa.is_accepting(from) && it != planner.cycle_cost.end())
+                return it->second;
+            return std::numeric_limits<double>::infinity();
+        }
+        // SUFFIX: redirected "step back into the anchor" edge.
+        for (const WPA::Neighbor& nb : wpa.neighbors_ext(from)) {
+            if (nb.dst == search.redirect_target) return nb.cost;
+        }
         return std::numeric_limits<double>::infinity();
     }
     for (const WPA::Neighbor& nb : wpa.neighbors_ext(from)) {
         if (nb.dst == to) return nb.cost;
     }
     return std::numeric_limits<double>::infinity();
+}
+
+// ------------------------------------------------------------------
+// suffix_cycle_path
+//
+// g-descent from the anchor (sfx.redirect_target) toward sfx.goal, same
+// idiom as dstar_plan's prefix descent: at each state, take whichever option
+// (a real neighbor, or the virtual closing edge) has the smaller g(dst)+cost.
+// The virtual option always represents "stop here, the loop closes via this
+// edge" — ties favor closing, since g(goal) == 0 means the virtual option
+// can never get cheaper by continuing further.
+// ------------------------------------------------------------------
+static std::vector<unsigned> suffix_cycle_path(
+    const WPA& wpa,
+    const DStarPlanner& planner,
+    const DStarSearch& sfx
+){
+    std::vector<unsigned> path;
+    unsigned cur = sfx.redirect_target;
+    const unsigned sentinel  = wpa.prod()->num_states();
+    const unsigned max_steps = sentinel + 1;
+
+    for (unsigned steps = 0; steps < max_steps; ++steps) {
+        path.push_back(cur);
+
+        double   best_cost = std::numeric_limits<double>::infinity();
+        unsigned best_next  = sentinel;
+        for (const WPA::Neighbor& nb : wpa.neighbors_ext(cur)) {
+            double c = nb.cost + get_g(sfx.g, nb.dst);
+            if (c < best_cost) { best_cost = c; best_next = nb.dst; }
+        }
+
+        double virt = edge_cost(wpa, planner, sfx, cur, sfx.goal);
+        if (virt <= best_cost) return path;   // loop closes: cur -(virt)-> anchor
+
+        if (best_next == sentinel) return {};  // dead end — g-field says finite but no edge found (shouldn't happen)
+        cur = best_next;
+    }
+    return {};  // safety net: g-field wasn't a genuine finite cycle
 }
 
 void compute_shortest_path(
@@ -362,7 +463,7 @@ void compute_shortest_path(
                         // g(u) was just set to rhs_u above, so use rhs_u here —
                         // NOT the stale g_u (== inf), which would block all
                         // propagation and leave the whole field at infinity.
-                        double cost_s_to_u = edge_cost(wpa, planner, s, u);
+                        double cost_s_to_u = edge_cost(wpa, planner, search, s, u);
                         double new_rhs = std::min(get_rhs(search.rhs, s), cost_s_to_u + rhs_u);
                         search.rhs[s] = new_rhs;
                     }
@@ -385,7 +486,7 @@ void compute_shortest_path(
 
             for (unsigned s : affected) {
                 // Line 26: if this state's incoming cost from u changed
-                double cost_s_to_u = edge_cost(wpa, planner, s, u);
+                double cost_s_to_u = edge_cost(wpa, planner, search, s, u);
 
                 // {26-27}: if rhs was built on the old cost, recompute it
                 if (get_rhs(search.rhs, s) == cost_s_to_u + gold) {
@@ -394,8 +495,11 @@ void compute_shortest_path(
                         for (const WPA::Neighbor& nb : wpa.neighbors_ext(s)) {
                             new_rhs = std::min(new_rhs, nb.cost + get_g(search.g, nb.dst));
                         }
-                        if (wpa.is_accepting(s) && planner.cycle_cost.count(s) > 0) {
-                            new_rhs = std::min(new_rhs, planner.cycle_cost[s] + get_g(search.g, sgoal));
+                        // virtual goal-closing edge (PREFIX: cycle_cost; SUFFIX:
+                        // redirected real edge into the anchor) — see edge_cost().
+                        double virt = edge_cost(wpa, planner, search, s, sgoal);
+                        if (virt != std::numeric_limits<double>::infinity()) {
+                            new_rhs = std::min(new_rhs, virt + get_g(search.g, sgoal));
                         }
                         search.rhs[s] = new_rhs;
                     }
