@@ -1,71 +1,31 @@
-This is the simulation module plan
+# Robotics LTL-D\* — from simulation to implementation
 
+Exploring LTL's application in robotics. A single-robot LTL planner with **D\*
+Lite incremental replanning** over a product automaton (transition system ×
+NBA), built as a stepping stone toward LTL-based task allocation for
+heterogeneous multi-robot systems.
 
+- **Module layout, build targets, how to run** → [`simulation/README.md`](simulation/README.md)
+- **Replanning status + the Option-2 (paper-faithful) migration plan** → [`simulation/MIGRATION_NOTES.md`](simulation/MIGRATION_NOTES.md)
+- **Reference papers** → `papers/` (LTL-D\* core: Ren et al. 2024, arXiv:2404.01219)
 
-grid_vis    : prints the grif as DOT
-ltl_vis     : takes in spot::formula / Translaters Automation and prints dot
-            - Vis NBA, TS and product
-            - twa_product(nba, ts)
+## Status
 
-ts          : makes and returns a ts system from the graph world
-            : makes a NBA from the robot
-ltl         : spot wrapper: parse and translate automation type
+- **Prefix replanning**: implemented and **validated** (test suite: `make tests`).
+- **Suffix (cycle) replanning**: Option-1 stopgap (full A\* re-search of touched
+  loops); Option-2 incremental `SUFFIXREPLAN` pending — see the migration notes.
+- **Known limitation** (validated): cells blocked *before* the product is built
+  have no graph node and cannot be unblocked/traversed at runtime; toggle
+  obstacles by clicking for reversible behavior. Details in `simulation/README.md`.
 
-grid_word   : grid model: bounds, obstacles, neighbors
-            : eventaully add a ts_label layer
+## Building Spot (dependency)
 
-ROBOT       : capabilites, action, motion?
+Spot is cloned into `spot/` (a standalone upstream clone tracking `origin/next`,
+not a submodule) and installed system-wide; the Makefile links it via
+`pkg-config`.
 
-sim         : simulation runner; run step by step with run trace to see actions
-            : should add timer (make make adjustable) so we can watch the run
-            : maybe highlight the state that it is in while running though grid world (extra)
-main        : just pass in a automation to see if it can be satifisfied
-
-
-TO-DO list
-
-    -  make a grid world 2X2 using the G(a -> Fb)
-        - this is in test file
-
-    - In the simulation file add a run log 
-    - 
-
-
-    - when there is a change you update the edge states
-        - map changes -> udate TS edges
-    - ts_trans.cpp
-        - go though grid_world to make edges
-        - ex auto -> new_edhe(0,1,p1)
-
-
-
-    NBA -> twa_graph_ptr
-        From robot
-    TS  -> twa_graph_ptr
-        from the graph \
-
-
-NOTES:
-    G: always
-    F: eventually
-    function to take product - twa_product(a,b)
-
-Tools:
-    spot::formula
-    spot::translator
-    spot::twa_graph_ptr
-    spot::print_dot
-    
-# Robotics LTL-D* from simulation to implemtation #
-
-This repository is deteicated to exploring LTL's applicaiton in robotics. 
-
-
-### References ###
-
-the spot github that was used, in Ubuntu
-```
-// required build dependencies
+```sh
+# required build dependencies
 sudo apt update
 sudo apt install -y \
   build-essential git pkg-config \
@@ -74,151 +34,72 @@ sudo apt install -y \
   libbdd-dev libgmp-dev libboost-all-dev \
   python3-dev swig
 
-// clone with submodules
+# clone with submodules
 cd ~
 git clone --recurse-submodules https://gitlab.lre.epita.fr/spot/spot.git
 cd spot
 
-// bootstrap
-autoreconf -vfi
-
-// configure
-./configure --prefix=/usr/local
-
-// build
-make -j$(nproc)
-
-// install
-sudo make install
-sudo ldconfig
-
-```
-this is a warning for furture me reference
-```
-===================================================================
- This is a development version of Spot: Assertions and debuging
- code are enabled by default.  If you find this too slow or
- plan to do some benchmarking, run configure with --disable-devel.
-===================================================================
+autoreconf -vfi                       # bootstrap
+./configure --prefix=/usr/local       # configure
+make -j$(nproc)                        # build
+sudo make install && sudo ldconfig     # install
 ```
 
-For getting the visulization for LTL
-```
+Note: Spot's default build enables assertions/debug code (slower). For
+benchmarking, `./configure --disable-devel`.
+
+## Visualization tools
+
+```sh
 sudo apt install graphviz xdot
 
-// dot viewer example
+# LTL automaton -> dot viewer
 ltl2tgba -f "GFa & GFb" --dot | xdot -
 
-// open pdf example
-xdg-open automaton.pdf
+# the `test` target prints an automaton to stderr as dot
+./test.out 2> aut.dot && xdot aut.dot
 ```
 
-The makefile right now has a sim and a test flag. Use the test to see if spot is working. Sim is our grid_world simualtion.
-
-Visulization for LTL
-```
-sudo apt install graphviz xdot
-./test 2> aut.dot
-xdot aut.dot
-```
-Visulization for Gridworld (raylib)
-https://github.com/raysan5/raylib/wiki/Working-on-GNU-Linux
+Gridworld visualization uses raylib:
+<https://github.com/raysan5/raylib/wiki/Working-on-GNU-Linux>
 
 ---
 
-## Future Directions (Hypothetical)
+## Future Directions (hypothetical)
 
 ### Replanning modes
-The D* planner supports two modes: incremental (`DSTAR_INCREMENTAL`) and full recompute (`FULL_RECOMPUTE`). For a fixed-size grid, all scenarios — obstacles appearing, cells being unblocked, internal discovery — are cost changes on an existing graph and are handled incrementally. Full recompute is kept as a correctness baseline.
+The D\* planner supports incremental (`DSTAR_INCREMENTAL`) and full recompute
+(`FULL_RECOMPUTE`). For a fixed-size grid, obstacles appearing, cells being
+unblocked, and internal discovery are all cost changes on an existing graph and
+are handled incrementally. Full recompute is kept as a correctness baseline (and
+is what the test suite cross-checks against).
+
+### Fixed graph, changing costs (fixes the build-time-blocking limitation)
+For a fixed-size map where traversability is unknown but the grid bounds are
+known, pre-allocate a product state for **every** cell at construction and treat
+blocked/unknown cells as high-cost edges. Then block/unblock is purely a cost
+change D\* handles incrementally — and the current asymmetry (build-time blocks
+remove nodes, runtime blocks re-weight) disappears.
 
 ### Frontier-based exploration
-If the grid itself grows (expanding map, frontier-based exploration), new grid cells mean new product states that were never allocated. That is a topology change, not a cost change. The product automaton must be rebuilt and D* tables reset. This is the one scenario that requires `FULL_RECOMPUTE`. For a fixed-size map where traversability is unknown but the grid bounds are known, pre-allocate all product states at construction and treat unknown cells as high-cost — D* handles discovery incrementally.
+If the grid itself grows (expanding map), new cells mean new product states never
+allocated — a *topology* change, not a cost change. That requires rebuilding the
+product and resetting D\* tables (`FULL_RECOMPUTE`).
 
 ### Region abstraction (hierarchical planning)
-For computational efficiency, grid cells that share the same LTL label can be grouped into regions (e.g. cells (0,0)–(4,0) all labeled "A" become one abstract region). Two approaches:
-
-- **Label grouping**: cells share a label so NBA transitions are identical, but product states are still per-cell. Cheaper NBA computation, D* unchanged.
-- **True region abstraction**: collapse (region, nba_state) into a single product state. Smaller product automaton, but requires well-defined inter-region edge costs and a separate local planner for within-region navigation. This is hierarchical planning — abstract D* picks the next region, local planner picks the cell within it.
-
-True region abstraction is a natural extension once the single-robot case is solid. It also pairs well with multi-robot scaling (fewer states = much cheaper joint product automaton).
+Group cells sharing an LTL label into regions. Either keep per-cell product
+states with shared labels (cheaper NBA, D\* unchanged), or collapse
+`(region, nba_state)` into one product state (smaller automaton, needs
+inter-region costs + a local within-region planner). Pairs well with multi-robot
+scaling.
 
 ### Multi-robot extension
-The long-term goal is LTL-based task allocation for heterogeneous multi-robot systems (see `papers/ltl_fasktrackallocation.pdf`, `papers/ltl_fasttrackltl.pdf`). The WPA is currently single-robot. The `ProductBundle` is designed to eventually be shared across robots via `shared_ptr<const ProductBundle>`, with per-robot `DStarPlanner` instances.
+Long-term goal: LTL task allocation for heterogeneous multi-robot systems (see
+`papers/ltl_fasktrackallocation.pdf`, `papers/ltl_fasttrackltl.pdf`). The WPA is
+single-robot today; `ProductBundle` is meant to become
+`shared_ptr<const ProductBundle>` shared across robots, with a per-robot
+`DStarPlanner`.
 
-## Random Thoughs
-For constantly changing worlds a cycle cache?
-Add vision 'cone' in simulation - or like lidar detection or something <- do this
-
-## TODO by next meeting
-
-### Phase 1 — Get D* producing the path (replace A*)
-
-**1a. Implement `reconstruct_lasso` in `simulation/src/dstar.cpp:287`**
-After `make_planner` runs, `planner.g[s]` holds backward distance from `s` to `s_imag`.
-Walk forward greedily: at each state `s`, pick neighbor `nb` minimizing `nb.cost + g[nb.dst]`.
-Stop when you land on an accepting state. The cycle is already in `planner.cycle_path[accepting_state]`.
-```
-reconstruct_lasso(wpa, planner, start):
-    current = start,  prefix_ids = []
-    loop:
-        prefix_ids.push(current)
-        if wpa.is_accepting(current): break
-        best_cost = +inf,  best_next = INVALID
-        for nb in wpa.neighbors_ext(current):
-            c = nb.cost + get_g(planner.g, nb.dst)
-            if c < best_cost: best_cost = c, best_next = nb.dst
-        if best_next == INVALID: return {}
-        current = best_next
-    cycle_ids = planner.cycle_path[current]
-    return LassoResult { to_pos(wpa, prefix_ids), to_pos(wpa, cycle_ids) }
-```
-
-**1b. Expose `reconstruct_lasso` — remove `static`, add declaration to `dstar.hpp`**
-```cpp
-LassoResult reconstruct_lasso(const WPA& wpa, const DStarPlanner& planner, unsigned start);
-```
-
-**1c. Update `simulation/apps/sim.cpp:81` — swap A* for D***
-```cpp
-// replace:  LassoResult lasso = astar_find_path(wpa);
-DStarPlanner planner = make_planner(wpa, ReplanMode::DSTAR_INCREMENTAL);
-LassoResult lasso = reconstruct_lasso(wpa, planner, wpa.init_state());
-```
-Verify the path looks correct visually before moving on.
-
----
-
-### Phase 2 — Detect changes and return changed nodes
-
-**2a. Store `pred_map` in `DStarPlanner` (needed by replan)**
-Add field to struct in `dstar.hpp`:
-```cpp
-std::unordered_map<unsigned, std::vector<unsigned>> pred_map;
-```
-In `make_planner`, assign `planner.pred_map = pred_map` before returning.
-
-**2b. New function: `detect_changed_states(wpa, changed_cells) -> std::vector<unsigned>`**
-Scan all product states; return IDs where `wpa.pos_of(s)` matches any cell in `changed_cells`.
-
-**2c. Implement `dstar_replan` in `dstar.cpp:142` (currently empty)**
-Per Algorithm 3 of LTL-D* paper (Ren et al. 2024):
-- For `FULL_RECOMPUTE`: call `make_planner` from scratch
-- For `DSTAR_INCREMENTAL`:
-  1. For each changed state `s`: call `wpa.set_state_exit_weight(s, +inf or 1.0)`
-  2. For each predecessor of `s` in `pred_map`: recompute rhs and call `update_vertex`
-  3. Call `compute_shortest_path` from current position to `s_imag`
-  4. Return `reconstruct_lasso(wpa, planner, current)`
-- Also: make `compute_shortest_path` non-static so `dstar_replan` can call it
-- Update return type in `dstar.hpp` from `std::vector<unsigned>` to `LassoResult`
-
-**2d. Visualizer callback in `grid_vis.hpp`**
-Change `dynamic_visulizer` to accept a callback:
-```cpp
-void dynamic_visulizer(
-    GridWorld& world,
-    const std::vector<std::vector<Pos>>& initial_path,
-    std::function<LassoResult(Pos, bool)> on_toggle
-);
-```
-`on_toggle(pos, is_now_blocked)` is called on each cell click; returns the new lasso.
-In `sim.cpp`, provide a lambda that calls `detect_changed_states` → `dstar_replan`.
+## Random thoughts
+- Cycle cache for constantly-changing worlds?
+- Add a vision cone / lidar-style detection in the simulation.

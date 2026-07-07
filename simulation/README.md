@@ -72,6 +72,29 @@ clicks). The planner also prints the prefix g-descent and the cycle to stdout.
   Option-2 (paper-faithful `SUFFIXREPLAN`) migration plan.
 - **Not started**: β suffix weighting; infeasible-task replanning (LTL-D\* §IV).
 
+## Known limitations / gotchas (validated)
+
+- **Build-time obstacles are not reversible.** `world.set_blocked(cell)` *before*
+  `build_product_from_world_robot_ltl` gives that cell **no TS state**
+  ([ts.cpp](src/ts.cpp), `if (world.is_blocked(...)) continue`), so it's absent
+  from the product graph. Runtime `dstar_replan` only re-weights *existing*
+  edges — it can't resurrect a missing node — so a cell blocked at build time
+  can never be unblocked (or routed through) at runtime. For **reversible**
+  obstacles, toggle them by clicking during the run (that path uses
+  `set_state_exit_weight`, keeping the node). Paper-aligned fix: create a node
+  for every in-bounds cell and model obstacles as infinite-cost edges (fixed
+  graph, changing costs) — see root README "Future Directions".
+- **Labels only matter if the formula names them.** A `set_label` whose letter
+  doesn't appear in the LTL is inert — it neither attracts nor repels the robot;
+  the cell is just ordinary floor. To make a label matter, put it in the formula
+  (`G F d` to visit, `G !d` to avoid). See the `sim.cpp` LTL test menu.
+
+## LTL test menu
+
+`apps/sim.cpp` has a commented menu of formulas (reachability, patrol, ordered
+visit, alternation, avoidance, and the LTL-D\* §V benchmark). Uncomment one
+`ltl =` line and place its atomic propositions with `set_label`.
+
 ## Spot / LTL cheatsheet
 
 `G` = always, `F` = eventually; `twa_product(a, b)` takes the product.
