@@ -22,11 +22,12 @@ void static_visualizer(
 //             built from. Only sensing (sense()+reveal(), gated by
 //             sensor_cfg) can change it; the robot never sees `world`
 //             directly.
+// sensor_cfg: non-const — radius is live-adjustable in the GUI ('['/']').
 void dynamic_visulizer(
     GridWorld& world,
     GridWorld& robot_map,
     const LassoResult& lasso,
     WPA& wpa,
     DStarPlanner& planner,
-    const SensorConfig& sensor_cfg
+    SensorConfig& sensor_cfg
 );

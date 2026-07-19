@@ -132,6 +132,95 @@ fixed-graph work above for the "how do I represent an as-yet-unknown cell"
 question, and pairs naturally with region abstraction below once the frontier
 gets large.
 
+**Novelty check (2026-07-18):** incremental product-automaton construction
+paired with frontier-based exploration under LTL is an active research area,
+not open ground — see "Related external work" below. None of it pairs this
+with D\* Lite-style incremental replanning specifically (they lean on
+sampling-based, potential-field, or regret-based planners instead), which is
+the angle this codebase already has working via LTL-D\*. That pairing —
+NBA-driven incremental state minting feeding an already-incremental D\* Lite
+search — is the narrower, more defensible contribution to aim for here,
+rather than "automaton-driven map discovery" in general.
+
+#### Related external work (not in `papers/`, found via literature check)
+- [Temporal-Logic-Aware Frontier-Based Exploration](https://arxiv.org/pdf/2602.18951)
+- [Motion Planning Under Temporal Logic Specifications In Semantically Unknown Environments](https://arxiv.org/pdf/2511.03652)
+- [To Explore or Not to Explore: Regret-Based LTL Planning in Partially-Known Environments](https://arxiv.org/pdf/2204.00268)
+- [Guaranteeing High-Level Behaviors while Exploring Partially Known Maps](https://www.roboticsproceedings.org/rss08/p48.pdf)
+- [Hybrid and Oriented Harmonic Potentials for Safe Task Execution in Unknown Environment](https://arxiv.org/pdf/2306.07537)
+
+#### Design plan (2026-07-18, not yet implemented)
+
+Labels (`a`/`b`/`c`/`d`) are known upfront (like a floorplan with marked
+target rooms but unknown terrain), with the flag built so this can be
+toggled to "labels also hidden until sensed" later — see `SensorConfig`
+below.
+
+Good news that shrinks the scope: `spot::product()` (the algorithm) is
+one-shot, but the underlying `spot::twa_graph` it returns supports
+incremental `new_state()`/`new_edge()` at any time — the same calls
+`world_to_ts` already uses to build the TS by hand. So this isn't "replace
+spot with a hand-rolled graph," it's "stop calling `spot::product()`, and
+grow a `spot::twa_graph` ourselves, one discovered cell at a time." `WPA`'s
+interface (`neighbors_ext`, `pos_of`, `is_accepting`, `state_exit_weight`,
+etc.) barely changes — it already just reads `prod->out(state)` and
+queries maps keyed by product-state-id, and doesn't care whether the graph
+was populated in one shot or grown lazily.
+
+**Phase 1 (v1 — discovery + incremental minting + D\* integration):**
+
+1. `grid_world.hpp`/`.cpp`: `Occupancy` gains a 4th value, `Unknown` — the
+   default for every cell in a frontier-mode `robot_map`, since even wall
+   layout isn't known until sensed now. `SensorConfig` gains
+   `bool labels_known_upfront = true;`.
+2. `sensing.hpp`/`.cpp`: new `seed_frontier_belief(world, labels_known_upfront)
+   -> GridWorld` (same bounds as `world`, everything `Unknown`, labels
+   copied in only if the flag is set) replaces `seed_from_static` for
+   frontier mode — bounded mode keeps `seed_from_static` unchanged, no
+   regression to the existing feature. `reveal()` gets heavier: for a still-
+   `Unknown` cell it must resolve `Unknown -> {Static, Free, Dynamic}` from
+   `world` truth (and copy the label too, if `!labels_known_upfront`).
+   Return type needs to distinguish *first-time-discovered* cells (which
+   need minting, step 3) from *already-known-Dynamic-cell-flipped* cells
+   (which just need the existing cost-reweight path) — proposing
+   `RevealEvent{Pos, bool newly_discovered}` instead of the current plain
+   `vector<Pos>`.
+3. Incremental minting (likely lands in `ts.cpp`, which already owns the
+   NBA-transition/label-BDD logic this needs): maintain a per-position
+   index (`unordered_map<Pos, vector<unsigned>>`) of which NBA states are
+   currently minted at each cell, so a newly discovered cell's
+   already-minted neighbors can be found without scanning the whole graph.
+   `discover_cell(p, ...)`: if `p` resolves `Static`, mint nothing, ever
+   (matches today's rule, just decided later than construction). If
+   `Free`/`Dynamic`: for every already-minted neighboring state `(p', q')`,
+   compute the NBA successor `q = δ(q', label(p))`, mint `(p, q)` via
+   `prod->new_state()` if new (reusing `ProductBundle`'s existing
+   `ts_state_to_pos`/`prod_state_to_nba`/`pos_nba_to_prod` bookkeeping —
+   barely changes), wire the edge via `prod->new_edge()` the same way
+   `world_to_ts` already builds edges. Extend `pred_map` incrementally too
+   (`pred_map[q].push_back(p'q')`), since D* Lite depends on it.
+4. `dstar.cpp`/`dstar_replan.cpp`: barely changes. Reuses
+   `compute_shortest_path`/`calculate_key`/`update_vertex` as-is — a newly
+   minted state already defaults to `g=rhs=∞` (`unordered_map` lookup), and
+   folds in via `update_vertex` exactly like a cost-changed state does
+   today. The only new logic is seeding `rhs` for brand-new states from
+   their new edges, structurally the same shape as `dstar_replan`'s
+   existing loop.
+
+**Phase 2 (v2 — active frontier-seeking):**
+
+5. Frontier-selection policy (genuinely new behavior, no existing analog):
+   when `g(current) == ∞` (nothing discovered yet leads to an accepting
+   anchor), the robot needs to move toward the nearest *undiscovered* cell
+   to reveal more map, instead of sitting still. A separate BFS over
+   discovered-and-traversable cells, targeting the nearest one bordering
+   `Unknown` territory — it doesn't know or care about the LTL task at all,
+   purely an information-gain search.
+
+v1 (1-4) is independently testable — the robot just idles/reports
+infeasible until enough of the map is discovered by luck of the sensor
+radius passing over new cells. v2 (5) is what makes it actually explore.
+
 ### Region abstraction (hierarchical planning)
 Group cells sharing an LTL label into regions. Either keep per-cell product
 states with shared labels (cheaper NBA, D\* unchanged), or collapse

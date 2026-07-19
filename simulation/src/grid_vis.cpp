@@ -10,6 +10,7 @@
 #include <chrono>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
 #include "raylib.h"
 
 #include "grid_vis.hpp"
@@ -170,7 +171,8 @@ namespace theme {
     const Color sensor_outline = Color{59,  130, 246, 150};
     const Color metrics_bg     = Color{26,  28,  32,  255};
     const Color metrics_accent = header_robot;
-    const Color metrics_text   = Color{221, 225, 230, 255};
+    const Color metrics_text   = Color{221, 225, 230, 255};   // light text — for the dark metrics strip
+    const Color status_text    = Color{40,  46,  54,  255};   // dark text — for the light background
 
     const Color path_palette[] = {
         Color{219, 140, 15,  255},  // amber
@@ -372,13 +374,143 @@ static void draw_metrics_strip(
     DrawText(cycle_line.c_str(),  x + 16, y + 62, 15, cycle_color);
 }
 
+// ------------------------------------------------------------------
+// Testing/UX helpers: status bar + legend, world layout save/load,
+// metrics-to-CSV. All keyboard-toggle based (no raygui dependency).
+// ------------------------------------------------------------------
+
+static const char* suffix_mode_name(SuffixMode m)
+{
+    return m == SuffixMode::OPTION1_ASTAR ? "OPTION1_ASTAR" : "OPTION2_INCREMENTAL";
+}
+
+static const char* replan_mode_name(ReplanMode m)
+{
+    return m == ReplanMode::DSTAR_INCREMENTAL ? "DSTAR_INCREMENTAL" : "FULL_RECOMPUTE";
+}
+
+// One-line control readout, so a screen recording is self-documenting
+// without narration.
+static void draw_status_line(
+    int x, int y, bool paused, SuffixMode suffix_mode, ReplanMode replan_mode,
+    bool placing_static, bool debug_overlay, float step_interval, double sensor_radius
+){
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(2);
+    os << "[SPACE] " << (paused ? "PAUSED" : "RUNNING")
+       << "  [RIGHT] step-once(paused)"
+       << "  [M] suffix=" << suffix_mode_name(suffix_mode)
+       << "  [N] replan=" << replan_mode_name(replan_mode)
+       << "  [T] placing=" << (placing_static ? "STATIC" : "DYNAMIC")
+       << "  [D] debug=" << (debug_overlay ? "ON" : "OFF")
+       << "  [+/-] speed=" << step_interval << "s"
+       << "  [[/]] radius=" << sensor_radius
+       << "  [F2] shot  [F5] save  [F9] load";
+
+    DrawText(os.str().c_str(), x, y, 15, theme::status_text);
+}
+
+// Static/Dynamic + per-label color swatches, so a shared screenshot doesn't
+// need the `theme` source to be legible.
+static void draw_legend(int x, int y, const GridWorld& world)
+{
+    int cx = x;
+    auto swatch = [&](Color col, const char* label) {
+        DrawRectangle(cx, y, 14, 14, col);
+        DrawRectangleLines(cx, y, 14, 14, Fade(BLACK, 0.35f));
+        DrawText(label, cx + 20, y - 1, 14, theme::status_text);
+        cx += 20 + MeasureText(label, 14) + 18;
+    };
+    swatch(theme::cell_static, "Static");
+    swatch(theme::cell_dynamic, "Dynamic");
+    const std::vector<std::string> names = world.label_names();
+    for (int li = 0; li < (int)names.size(); ++li)
+        swatch(theme::label_colors[li % 4], names[li].c_str());
+}
+
+// Plain-text world layout, human-readable/hand-editable:
+//   WIDTH w / HEIGHT h / LABEL name x y / STATIC x y / DYNAMIC x y
+static void save_world_layout(const GridWorld& world, const std::string& path)
+{
+    std::ofstream os(path, std::ios::out | std::ios::trunc);
+    if (!os) { std::cerr << "save_world_layout: could not open " << path << "\n"; return; }
+
+    os << "WIDTH "  << world.width()  << "\n";
+    os << "HEIGHT " << world.height() << "\n";
+
+    for (const std::string& name : world.label_names())
+        for (int y = 0; y < world.height(); ++y)
+            for (int x = 0; x < world.width(); ++x)
+                if (world.has_label({x, y}, name))
+                    os << "LABEL " << name << " " << x << " " << y << "\n";
+
+    for (int y = 0; y < world.height(); ++y) {
+        for (int x = 0; x < world.width(); ++x) {
+            if (world.is_static({x, y}))  os << "STATIC "  << x << " " << y << "\n";
+            if (world.is_dynamic({x, y})) os << "DYNAMIC " << x << " " << y << "\n";
+        }
+    }
+}
+
+// Only touches `world` (ground truth) — the robot only ever learns about it
+// via reveal(), same as any other ground-truth edit. Requires matching
+// WIDTH/HEIGHT (this session's product/WPA is already built for a fixed
+// size); mismatched files are rejected rather than resized.
+static bool load_world_layout(GridWorld& world, const std::string& path)
+{
+    std::ifstream is(path);
+    if (!is) { std::cerr << "load_world_layout: could not open " << path << "\n"; return false; }
+
+    std::string tag;
+    int w = 0, h = 0;
+    is >> tag >> w >> tag >> h;
+    if (w != world.width() || h != world.height()) {
+        std::cerr << "load_world_layout: " << w << "x" << h << " in file vs "
+                   << world.width() << "x" << world.height() << " in sim — skipping\n";
+        return false;
+    }
+
+    const std::vector<std::string> names = world.label_names();
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            world.set_free({x, y});
+            for (const std::string& name : names)
+                world.set_label({x, y}, name, false);
+        }
+    }
+
+    while (is >> tag) {
+        if (tag == "LABEL") {
+            std::string name; int x, y;
+            is >> name >> x >> y;
+            world.set_label({x, y}, name, true);
+        } else if (tag == "STATIC") {
+            int x, y; is >> x >> y;
+            world.set_static({x, y}, true);
+        } else if (tag == "DYNAMIC") {
+            int x, y; is >> x >> y;
+            world.set_dynamic({x, y}, true);
+        }
+    }
+    return true;
+}
+
+static void log_metrics_csv(const Metrics& m, int step_index, Pos pos)
+{
+    std::ofstream os("output/metrics.csv", std::ios::out | std::ios::app);
+    os << step_index << "," << pos.x << "," << pos.y << ","
+       << m.prefix_len << "," << m.cycle_len << "," << (m.prefix_len + m.cycle_len) << ","
+       << m.replan_count << "," << std::fixed << std::setprecision(4) << m.last_replan_ms
+       << "," << m.g_current << "\n";
+}
+
 void dynamic_visulizer(
     GridWorld& world,
     GridWorld& robot_map,
     const LassoResult& lasso,
     WPA& wpa,
     DStarPlanner& planner,
-    const SensorConfig& sensor_cfg
+    SensorConfig& sensor_cfg
 ){
     const int w = world.width();
     const int h = world.height();
@@ -388,6 +520,7 @@ void dynamic_visulizer(
     const int panelPad      = 10;
     const int headerH       = 34;
     const int panelGap      = 40;
+    const int statusBarH    = 56;   // control readout line + legend line
     const int metricsGap    = 16;
     const int metricsHeight = 90;   // numeric line + prefix line + loop line
 
@@ -395,7 +528,7 @@ void dynamic_visulizer(
     const int panelHeight = headerH + h * cellSize + panelPad * 2;
 
     const int worldPanelX = outerMargin;
-    const int panelY      = outerMargin;
+    const int panelY      = outerMargin + statusBarH;
     const int robotPanelX = worldPanelX + panelWidth + panelGap;
 
     const int worldOriginX = worldPanelX + panelPad;
@@ -422,14 +555,26 @@ void dynamic_visulizer(
     bool replanned    = false;
     int  replan_count = 0;          // advances the overlay color on each replan
     float elapsed     = 0.0f;
-    const float step_interval = 0.5f;
+    float step_interval = 0.5f;     // adjustable with '+'/'-'
+    const float step_interval_min = 0.05f;
+    const float step_interval_max = 2.0f;
     float sense_elapsed = 0.0f;
     const float sense_interval = 0.25f;   // independent of step_interval — see sense_due below
     bool debug_overlay = true;      // toggle with 'D'
 
+    bool paused         = false;    // toggle with SPACE — freezes movement+sensing, not drawing
+    bool placing_static = false;    // toggle with 'T' — click places Static instead of Dynamic
+    int  shot_count     = 0;        // screenshot filename counter, F2
+
     Metrics metrics;
     metrics.prefix_len = dedup_prefix_len(lasso);
     metrics.cycle_len  = (int)path.size() - metrics.prefix_len;
+
+    // Truncate + header once per run; log_metrics_csv() appends after this.
+    {
+        std::ofstream os("output/metrics.csv", std::ios::out | std::ios::trunc);
+        os << "step_index,pos_x,pos_y,prefix_len,cycle_len,total_len,replan_count,last_replan_ms,g_current\n";
+    }
 
     // Initial sense from the robot's starting cell — seed_from_static only
     // gives the robot Static structure, so without this it starts blind to
@@ -453,9 +598,69 @@ void dynamic_visulizer(
         }
     }
 
+    bool single_step_forced = false;
+
     while (!WindowShouldClose()) {
 
         if (IsKeyPressed(KEY_D)) debug_overlay = !debug_overlay;
+        if (IsKeyPressed(KEY_SPACE)) paused = !paused;
+        if (IsKeyPressed(KEY_T)) placing_static = !placing_static;
+
+        if (paused && IsKeyPressed(KEY_RIGHT)) {
+            // Force this frame's movement+sense block to run exactly once,
+            // even though paused — the shared !needs_replan/elapsed and
+            // sense_elapsed thresholds below are what actually gate it, so
+            // pre-loading them past threshold is enough; no separate code
+            // path needed.
+            single_step_forced = true;
+            elapsed       = step_interval;
+            sense_elapsed = sense_interval;
+        }
+
+        if (IsKeyPressed(KEY_EQUAL)) step_interval = std::max(step_interval_min, step_interval - 0.05f);
+        if (IsKeyPressed(KEY_MINUS)) step_interval = std::min(step_interval_max, step_interval + 0.05f);
+        if (IsKeyPressed(KEY_RIGHT_BRACKET)) sensor_cfg.radius = std::min(10.0, sensor_cfg.radius + 0.5);
+        if (IsKeyPressed(KEY_LEFT_BRACKET))  sensor_cfg.radius = std::max(0.5,  sensor_cfg.radius - 0.5);
+
+        if (IsKeyPressed(KEY_M)) {
+            // Rebuilds cycle tables from the WPA's CURRENT edge weights, so
+            // everything discovered so far is preserved — only the suffix
+            // strategy changes (same idea as dstar_replan's FULL_RECOMPUTE
+            // branch, parameterized on suffix_mode instead of mode).
+            SuffixMode new_suffix = (planner.suffix_mode == SuffixMode::OPTION1_ASTAR)
+                ? SuffixMode::OPTION2_INCREMENTAL : SuffixMode::OPTION1_ASTAR;
+            planner = make_planner(wpa, planner.mode, new_suffix);
+            unsigned current_state = path_ids[step_index];
+            LassoResult rebuilt = dstar_plan(wpa, planner, current_state);
+            if (!rebuilt.prefix.empty() || !rebuilt.cycle.empty()) {
+                build_flat_path(rebuilt, path, path_ids);
+                cycle_start = cycle_restart_index(rebuilt);
+                step_index  = 0;
+                metrics.prefix_len = dedup_prefix_len(rebuilt);
+                metrics.cycle_len  = (int)path.size() - metrics.prefix_len;
+            }
+            dbg("events.log") << "[mode] suffix_mode -> " << suffix_mode_name(planner.suffix_mode) << "\n" << std::flush;
+        }
+        if (IsKeyPressed(KEY_N)) {
+            planner.mode = (planner.mode == ReplanMode::DSTAR_INCREMENTAL)
+                ? ReplanMode::FULL_RECOMPUTE : ReplanMode::DSTAR_INCREMENTAL;
+            dbg("events.log") << "[mode] replan_mode -> " << replan_mode_name(planner.mode) << "\n" << std::flush;
+        }
+
+        if (IsKeyPressed(KEY_F2)) {
+            std::ostringstream fn;
+            fn << "output/screenshot_" << std::setw(3) << std::setfill('0') << shot_count++ << ".png";
+            TakeScreenshot(fn.str().c_str());
+            dbg("events.log") << "[screenshot] saved " << fn.str() << "\n" << std::flush;
+        }
+        if (IsKeyPressed(KEY_F5)) {
+            save_world_layout(world, "output/world_layout.txt");
+            dbg("events.log") << "[layout] saved output/world_layout.txt\n" << std::flush;
+        }
+        if (IsKeyPressed(KEY_F9)) {
+            if (load_world_layout(world, "output/world_layout.txt"))
+                dbg("events.log") << "[layout] loaded output/world_layout.txt\n" << std::flush;
+        }
 
         // check for click updates — only inside the WORLD pane, writes ground
         // truth only. The robot only finds out once sense()/reveal() (below)
@@ -471,12 +676,19 @@ void dynamic_visulizer(
                 int gx = (mouse_x - worldOriginX) / cellSize;
                 int gy = (mouse_y - paneOriginY) / cellSize;
                 if (world.in_bounds({gx, gy})) {
-                    world.set_dynamic({gx, gy}, !world.is_dynamic({gx, gy}));
-
-                    dbg("events.log")
-                        << "[click] cell=(" << gx << "," << gy << ")"
-                        << " now_dynamic=" << world.is_dynamic({gx, gy})
-                        << " (ground truth only — robot not yet informed)\n" << std::flush;
+                    if (placing_static) {
+                        world.set_static({gx, gy}, !world.is_static({gx, gy}));
+                        dbg("events.log")
+                            << "[click] cell=(" << gx << "," << gy << ")"
+                            << " now_static=" << world.is_static({gx, gy})
+                            << " (ground truth only — placed after build won't remove a graph node)\n" << std::flush;
+                    } else {
+                        world.set_dynamic({gx, gy}, !world.is_dynamic({gx, gy}));
+                        dbg("events.log")
+                            << "[click] cell=(" << gx << "," << gy << ")"
+                            << " now_dynamic=" << world.is_dynamic({gx, gy})
+                            << " (ground truth only — robot not yet informed)\n" << std::flush;
+                    }
                 }
             }
         }
@@ -484,6 +696,10 @@ void dynamic_visulizer(
         // draw everything from scratch
         BeginDrawing();
         ClearBackground(theme::background);
+
+        draw_status_line(outerMargin, outerMargin, paused, planner.suffix_mode, planner.mode,
+                          placing_static, debug_overlay, step_interval, sensor_cfg.radius);
+        draw_legend(outerMargin, outerMargin + 26, world);
 
         draw_panel(worldPanelX, panelY, panelWidth, panelHeight, headerH, "WORLD (ground truth)", theme::header_world);
         draw_panel(robotPanelX, panelY, panelWidth, panelHeight, headerH, "ROBOT BELIEF",          theme::header_robot);
@@ -526,58 +742,68 @@ void dynamic_visulizer(
             draw_sensor_outline(sensor_cfg, path[step_index], robotOriginX, paneOriginY, cellSize, theme::sensor_outline);
         }
 
-        // advance robot
-        if (!needs_replan) {
-            elapsed += GetFrameTime();
-        }
-        bool stepped = false;
-        if (elapsed >= step_interval) {
-            step_index++;
-            if (step_index >= (int)path.size()) step_index = cycle_start;
-            elapsed = 0.0f;
-            stepped = true;
+        // advance robot + sense — frozen while paused, except for a single
+        // forced tick from KEY_RIGHT (see above, which pre-loads elapsed/
+        // sense_elapsed past their thresholds so the exact same logic below
+        // fires once instead of needing a separate code path).
+        if (!paused || single_step_forced) {
+            single_step_forced = false;
 
-            unsigned sid = path_ids[step_index];
-            dbg("events.log")
-                << "[step] step_index=" << step_index
-                << " state=" << sid
-                << " pos=(" << wpa.pos_of(sid).x << "," << wpa.pos_of(sid).y << ")"
-                << " nba=" << wpa.nba_state_of(sid) << "\n" << std::flush;
-        }
+            if (!needs_replan) {
+                elapsed += GetFrameTime();
+            }
+            bool stepped = false;
+            if (elapsed >= step_interval) {
+                step_index++;
+                if (step_index >= (int)path.size()) step_index = cycle_start;
+                elapsed = 0.0f;
+                stepped = true;
 
-        // Sense on its own timer, decoupled from movement — NOT gated on
-        // `stepped`. Movement itself is gated on `!needs_replan` (see above),
-        // so if sensing only ran when the robot moved, a robot stalled by a
-        // blocked path could never sense again to notice the block clearing
-        // later: stalled -> never steps -> never senses -> stuck forever,
-        // even after you reopen the cell. EveryTick means every simulation
-        // tick, independent of whether the robot actually advanced a cell.
-        sense_elapsed += GetFrameTime();
-        bool sense_due = false;
-        switch (sensor_cfg.cadence) {
-            case SensingCadence::EveryTick: sense_due = sense_elapsed >= sense_interval; break;
-            case SensingCadence::OnMove:    sense_due = stepped;                        break;
-            case SensingCadence::OnDemand:  sense_due = false;                          break;
-        }
-        if (sense_due) {
-            sense_elapsed = 0.0f;
-            LassoResult new_lasso;
-            double replan_ms = 0.0;
-            if (sense_reveal_and_replan(world, robot_map, sensor_cfg, wpa, planner,
-                                         path_ids[step_index], new_lasso, replan_ms)) {
-                if (!new_lasso.prefix.empty() || !new_lasso.cycle.empty()) {
-                    build_flat_path(new_lasso, path, path_ids);
-                    cycle_start = cycle_restart_index(new_lasso);
-                    // The replanned path starts AT the robot's current cell
-                    // (dstar_replan plans from current_state), so the robot is
-                    // at index 0. Keeping the old step_index would teleport it.
-                    step_index  = 0;
-                    replanned   = true;
-                    replan_count++;
-                    metrics.prefix_len     = dedup_prefix_len(new_lasso);
-                    metrics.cycle_len      = (int)path.size() - metrics.prefix_len;
-                    metrics.replan_count   = replan_count;
-                    metrics.last_replan_ms = replan_ms;
+                unsigned sid = path_ids[step_index];
+                dbg("events.log")
+                    << "[step] step_index=" << step_index
+                    << " state=" << sid
+                    << " pos=(" << wpa.pos_of(sid).x << "," << wpa.pos_of(sid).y << ")"
+                    << " nba=" << wpa.nba_state_of(sid) << "\n" << std::flush;
+
+                log_metrics_csv(metrics, step_index, path[step_index]);
+            }
+
+            // Sense on its own timer, decoupled from movement — NOT gated on
+            // `stepped`. Movement itself is gated on `!needs_replan` (see
+            // above), so if sensing only ran when the robot moved, a robot
+            // stalled by a blocked path could never sense again to notice
+            // the block clearing later: stalled -> never steps -> never
+            // senses -> stuck forever, even after you reopen the cell.
+            // EveryTick means every simulation tick, independent of whether
+            // the robot actually advanced a cell.
+            sense_elapsed += GetFrameTime();
+            bool sense_due = false;
+            switch (sensor_cfg.cadence) {
+                case SensingCadence::EveryTick: sense_due = sense_elapsed >= sense_interval; break;
+                case SensingCadence::OnMove:    sense_due = stepped;                        break;
+                case SensingCadence::OnDemand:  sense_due = false;                          break;
+            }
+            if (sense_due) {
+                sense_elapsed = 0.0f;
+                LassoResult new_lasso;
+                double replan_ms = 0.0;
+                if (sense_reveal_and_replan(world, robot_map, sensor_cfg, wpa, planner,
+                                             path_ids[step_index], new_lasso, replan_ms)) {
+                    if (!new_lasso.prefix.empty() || !new_lasso.cycle.empty()) {
+                        build_flat_path(new_lasso, path, path_ids);
+                        cycle_start = cycle_restart_index(new_lasso);
+                        // The replanned path starts AT the robot's current cell
+                        // (dstar_replan plans from current_state), so the robot is
+                        // at index 0. Keeping the old step_index would teleport it.
+                        step_index  = 0;
+                        replanned   = true;
+                        replan_count++;
+                        metrics.prefix_len     = dedup_prefix_len(new_lasso);
+                        metrics.cycle_len      = (int)path.size() - metrics.prefix_len;
+                        metrics.replan_count   = replan_count;
+                        metrics.last_replan_ms = replan_ms;
+                    }
                 }
             }
         }

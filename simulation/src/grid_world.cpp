@@ -59,6 +59,11 @@ void GridWorld::set_dynamic(Pos pos, bool value) {
     }
 }
 
+void GridWorld::set_free(Pos pos) {
+    if (!in_bounds(pos)) return;
+    occ_[pos.y][pos.x] = Occupancy::Free;
+}
+
 bool GridWorld::is_discovered(Pos pos) const {
     if (!in_bounds(pos)) return false;
     return discovered_[pos.y][pos.x] != 0;

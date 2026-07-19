@@ -39,6 +39,12 @@ class GridWorld {
         void set_static(Pos pos, bool value = true);
         void set_dynamic(Pos pos, bool value = true);
 
+        // Unconditionally forces a cell back to Free, regardless of its
+        // current type — unlike set_static(false)/set_dynamic(false), which
+        // only clear their own type. Used by save/load (§ grid_vis.cpp) to
+        // reset a cell before applying a loaded layout.
+        void set_free(Pos pos);
+
         // Discovery bookkeeping (belief maps only — bookkeeping/vis, doesn't
         // affect planning). "Has this cell ever been sensed."
         bool is_discovered(Pos pos) const;
