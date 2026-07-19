@@ -296,6 +296,8 @@ void dynamic_visulizer(
     int  replan_count = 0;          // advances the overlay color on each replan
     float elapsed     = 0.0f;
     const float step_interval = 0.5f;
+    float sense_elapsed = 0.0f;
+    const float sense_interval = 0.25f;   // independent of step_interval — see sense_due below
     bool debug_overlay = true;      // toggle with 'D'
 
     Metrics metrics;
@@ -423,10 +425,22 @@ void dynamic_visulizer(
                 << " nba=" << wpa.nba_state_of(sid) << "\n" << std::flush;
         }
 
-        // Sense from the robot's (possibly new) cell each tick — this is the
-        // SensingCadence::EveryTick behavior; OnMove/OnDemand would gate this
-        // differently once implemented (see sensing.hpp).
-        if (stepped && sensor_cfg.cadence == SensingCadence::EveryTick) {
+        // Sense on its own timer, decoupled from movement — NOT gated on
+        // `stepped`. Movement itself is gated on `!needs_replan` (see above),
+        // so if sensing only ran when the robot moved, a robot stalled by a
+        // blocked path could never sense again to notice the block clearing
+        // later: stalled -> never steps -> never senses -> stuck forever,
+        // even after you reopen the cell. EveryTick means every simulation
+        // tick, independent of whether the robot actually advanced a cell.
+        sense_elapsed += GetFrameTime();
+        bool sense_due = false;
+        switch (sensor_cfg.cadence) {
+            case SensingCadence::EveryTick: sense_due = sense_elapsed >= sense_interval; break;
+            case SensingCadence::OnMove:    sense_due = stepped;                        break;
+            case SensingCadence::OnDemand:  sense_due = false;                          break;
+        }
+        if (sense_due) {
+            sense_elapsed = 0.0f;
             LassoResult new_lasso;
             double replan_ms = 0.0;
             if (sense_reveal_and_replan(world, robot_map, sensor_cfg, wpa, planner,
