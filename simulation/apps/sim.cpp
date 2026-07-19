@@ -119,6 +119,8 @@ int main() {
     world.set_label({5,5}, "b", true);
     world.set_label({2,2}, "e", true);          // forbidden cell on the diagonal
 
+    world.set_static({3, 1}, true);             // static wall — known to the robot from t=0
+
     // Robot belief map: Static structure known from t=0 (seeded here), Dynamic
     // obstacles absent until sensed. The product is built from THIS, not
     // `world` — the robot never gets direct access to ground truth.

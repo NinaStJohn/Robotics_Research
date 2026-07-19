@@ -147,9 +147,171 @@ static bool sense_reveal_and_replan(
 }
 
 // ------------------------------------------------------------------
-// Debug overlay helper (functional debug aid, not "pretty" — kept
-// intentionally minimal; the real visual pass is future work, see TODO.md).
+// Theme — one place to tweak the look. Kept simple (flat colors, no
+// textures/fonts) but with enough visual hierarchy (cards, headers, rounded
+// cells, line-based paths instead of stacked translucent rectangles) that
+// panes read as a scene instead of a flat stack of overlays.
 // ------------------------------------------------------------------
+namespace theme {
+    const Color background     = Color{234, 237, 241, 255};
+    const Color panel_bg       = Color{252, 252, 253, 255};
+    const Color panel_border   = Color{217, 221, 227, 255};
+    const Color grid_line      = Color{223, 226, 231, 255};
+    const Color cell_free      = Color{255, 255, 255, 255};
+    const Color cell_static    = Color{57,  62,  70,  255};   // wall — charcoal
+    const Color cell_dynamic   = Color{196, 88,  61,  255};   // obstacle — rust
+    const Color header_world   = Color{71,  85,  105, 255};   // slate
+    const Color header_robot   = Color{12,  133, 122, 255};   // teal
+    const Color path_original  = Color{37,  99,  180, 255};   // blue   — prefix, no replan yet
+    const Color path_cycle     = Color{124, 58,  237, 255};   // purple — loop, no replan yet
+    const Color path_blocked   = Color{217, 45,  32,  255};   // red    — currently blocked (both)
+    const Color robot_fill     = Color{250, 204, 21,  255};   // amber
+    const Color robot_outline  = Color{161, 98,  7,   255};
+    const Color sensor_outline = Color{59,  130, 246, 150};
+    const Color metrics_bg     = Color{26,  28,  32,  255};
+    const Color metrics_accent = header_robot;
+    const Color metrics_text   = Color{221, 225, 230, 255};
+
+    const Color path_palette[] = {
+        Color{219, 140, 15,  255},  // amber
+        Color{147, 51,  190, 255},  // purple
+        Color{13,  148, 136, 255},  // teal
+        Color{219, 39,  119, 255},  // pink
+        Color{101, 163, 13,  255},  // lime
+        Color{29,  120, 200, 255},  // sky
+    };
+    const int path_palette_n = (int)(sizeof(path_palette) / sizeof(path_palette[0]));
+
+    const Color label_colors[] = {
+        Color{34,  197, 94,  215},  // green
+        Color{239, 68,  68,  215},  // red
+        Color{59,  130, 246, 215},  // blue
+        Color{249, 115, 22,  215},  // orange
+    };
+}
+
+// ------------------------------------------------------------------
+// Drawing helpers
+// ------------------------------------------------------------------
+
+// Card-style panel: soft drop shadow, background, border, and a colored
+// header bar with a centered title.
+static void draw_panel(
+    int x, int y, int width, int height, int headerH,
+    const char* title, Color headerColor
+){
+    DrawRectangle(x + 4, y + 4, width, height, Fade(BLACK, 0.08f));
+    DrawRectangle(x, y, width, height, theme::panel_bg);
+    DrawRectangleLinesEx(Rectangle{(float)x, (float)y, (float)width, (float)height}, 1.5f, theme::panel_border);
+
+    DrawRectangle(x, y, width, headerH, headerColor);
+    int textW = MeasureText(title, 18);
+    DrawText(title, x + (width - textW) / 2, y + headerH / 2 - 9, 18, RAYWHITE);
+}
+
+// Rounded, inset cells instead of edge-to-edge flat rectangles — gives each
+// cell a little breathing room so the grid reads as a scene, not a filled
+// bitmap. Static/Dynamic occupancy get distinct colors (wall vs obstacle).
+static void draw_pane_occupancy(
+    const GridWorld& g, int originX, int originY, int cellSize
+){
+    const int inset = 3;
+    for (int y = 0; y < g.height(); ++y) {
+        for (int x = 0; x < g.width(); ++x) {
+            Rectangle r{
+                (float)(originX + x * cellSize + inset),
+                (float)(originY + y * cellSize + inset),
+                (float)(cellSize - inset * 2),
+                (float)(cellSize - inset * 2)
+            };
+            Color fill = g.is_static({x, y})  ? theme::cell_static
+                       : g.is_dynamic({x, y}) ? theme::cell_dynamic
+                       :                        theme::cell_free;
+            DrawRectangleRounded(r, 0.22f, 8, fill);
+            DrawRectangleRoundedLines(r, 0.22f, 8, theme::grid_line);
+        }
+    }
+}
+
+// Labels as colored circular badges (rather than a full-cell fill) so they
+// stay legible without blotting out the occupancy/path underneath.
+static void draw_pane_labels(
+    const GridWorld& g, int originX, int originY, int cellSize
+){
+    const std::vector<std::string> names = g.label_names();
+    for (int li = 0; li < (int)names.size(); ++li) {
+        Color col = theme::label_colors[li % 4];
+        for (int y = 0; y < g.height(); ++y) {
+            for (int x = 0; x < g.width(); ++x) {
+                if (!g.has_label({x, y}, names[li])) continue;
+                int cx = originX + x * cellSize + cellSize / 2;
+                int cy = originY + y * cellSize + cellSize / 2;
+                float r = cellSize * 0.32f;
+                DrawCircle(cx, cy, r, col);
+                DrawCircleLines(cx, cy, r, Fade(BLACK, 0.25f));
+                int tw = MeasureText(names[li].c_str(), 18);
+                DrawText(names[li].c_str(), cx - tw / 2, cy - 9, 18, WHITE);
+            }
+        }
+    }
+}
+
+// Path/lasso as a connected line through cell centers (with small node dots
+// and the loop-closing segment back to the cycle anchor) instead of filling
+// every path cell with a translucent rectangle — avoids the previous "muddy
+// soup" where path + label + occupancy overlays all stacked on each other.
+// prefix_color/cycle_color are distinct so the one-time run-up and the
+// repeating loop read as different things at a glance; a segment/node
+// belongs to the cycle once its start index is >= cycle_start (the shared
+// anchor cell itself renders in cycle_color).
+static void draw_path_overlay(
+    const std::vector<Pos>& path, int cycle_start,
+    int originX, int originY, int cellSize,
+    Color prefix_color, Color cycle_color
+){
+    if (path.size() < 2) return;
+
+    auto center = [&](const Pos& p) -> Vector2 {
+        return Vector2{
+            (float)(originX + p.x * cellSize + cellSize / 2),
+            (float)(originY + p.y * cellSize + cellSize / 2)
+        };
+    };
+
+    for (size_t i = 1; i < path.size(); ++i) {
+        Color seg_color = ((int)(i - 1) >= cycle_start) ? cycle_color : prefix_color;
+        DrawLineEx(center(path[i - 1]), center(path[i]), 4.0f, seg_color);
+    }
+
+    if (cycle_start >= 0 && cycle_start < (int)path.size())
+        DrawLineEx(center(path.back()), center(path[cycle_start]), 4.0f, Fade(cycle_color, 0.6f));
+
+    for (size_t i = 0; i < path.size(); ++i) {
+        Color node_color = ((int)i >= cycle_start) ? cycle_color : prefix_color;
+        Vector2 c = center(path[i]);
+        DrawCircle((int)c.x, (int)c.y, 5.0f, node_color);
+    }
+}
+
+// "(x,y) -> (x,y) -> ..." for path[from..to] inclusive.
+static std::string format_positions(const std::vector<Pos>& path, int from, int to)
+{
+    std::ostringstream os;
+    for (int i = from; i <= to; ++i) {
+        if (i > from) os << " -> ";
+        os << "(" << path[i].x << "," << path[i].y << ")";
+    }
+    return os.str();
+}
+
+static void draw_robot_marker(Pos p, int originX, int originY, int cellSize)
+{
+    int cx = originX + p.x * cellSize + cellSize / 2;
+    int cy = originY + p.y * cellSize + cellSize / 2;
+    DrawCircle(cx, cy, cellSize * 0.42f, Fade(theme::robot_fill, 0.25f));   // soft glow
+    DrawCircle(cx, cy, cellSize * 0.26f, theme::robot_fill);
+    DrawCircleLines(cx, cy, cellSize * 0.26f, theme::robot_outline);
+}
 
 // Outline of the sensed region around `center`, shaped per cfg.metric.
 static void draw_sensor_outline(
@@ -166,7 +328,7 @@ static void draw_sensor_outline(
         }
         case SensorMetric::Chebyshev: {
             int half = (int)(cfg.radius * cellSize) + cellSize / 2;
-            DrawRectangleLines(cx - half, cy - half, half * 2, half * 2, col);
+            DrawRectangleLinesEx(Rectangle{(float)(cx - half), (float)(cy - half), (float)(half * 2), (float)(half * 2)}, 2.0f, col);
             break;
         }
         case SensorMetric::Manhattan:
@@ -176,82 +338,38 @@ static void draw_sensor_outline(
             Vector2 right{ (float)(cx + r), (float)cy };
             Vector2 bottom{ (float)cx, (float)(cy + r) };
             Vector2 left{ (float)(cx - r), (float)cy };
-            DrawLineV(top, right, col);
-            DrawLineV(right, bottom, col);
-            DrawLineV(bottom, left, col);
-            DrawLineV(left, top, col);
+            DrawLineEx(top, right, 2.0f, col);
+            DrawLineEx(right, bottom, 2.0f, col);
+            DrawLineEx(bottom, left, 2.0f, col);
+            DrawLineEx(left, top, 2.0f, col);
             break;
         }
     }
 }
 
-// Draws one pane's grid + occupancy (Static and Dynamic both render as
-// DARKGRAY — this pass is about the dual-map/interaction capability, not
-// distinguishing object types visually; see TODO.md #7 for the deferred
-// visual redesign).
-static void draw_pane_occupancy(
-    const GridWorld& g, int originX, int originY, int cellSize
-){
-    for (int y = 0; y < g.height(); ++y) {
-        for (int x = 0; x < g.width(); ++x) {
-            const int px = originX + x * cellSize;
-            const int py = originY + y * cellSize;
-            if (g.is_blocked({x, y}))
-                DrawRectangle(px, py, cellSize, cellSize, DARKGRAY);
-            DrawRectangleLines(px, py, cellSize, cellSize, LIGHTGRAY);
-        }
-    }
-}
-
-static void draw_pane_labels(
-    const GridWorld& g, int originX, int originY, int cellSize
-){
-    const Color label_colors[] = {
-        Color{0,   200,   0, 160},   // first label  — green
-        Color{220,   0,   0, 160},   // second label — red
-        Color{0,    80, 220, 160},   // third label  — blue
-        Color{200, 120,   0, 160},   // fourth label — orange
-    };
-    const std::vector<std::string> names = g.label_names();
-    for (int li = 0; li < (int)names.size(); ++li) {
-        const Color col = label_colors[li % 4];
-        for (int y = 0; y < g.height(); ++y) {
-            for (int x = 0; x < g.width(); ++x) {
-                if (!g.has_label({x, y}, names[li])) continue;
-                const int px = originX + x * cellSize;
-                const int py = originY + y * cellSize;
-                DrawRectangle(px, py, cellSize, cellSize, col);
-                DrawText(names[li].c_str(),
-                         px + cellSize/2 - 5,
-                         py + cellSize/2 - 8,
-                         16, WHITE);
-            }
-        }
-    }
-}
-
-static void draw_robot_marker(Pos p, int originX, int originY, int cellSize)
-{
-    DrawCircle(originX + p.x * cellSize + cellSize/2,
-               originY + p.y * cellSize + cellSize/2,
-               cellSize/3, Color{247, 235, 106, 255});
-}
-
 static void draw_metrics_strip(
-    const Metrics& m, int x, int y, int width, int height
+    const Metrics& m, int x, int y, int width, int height,
+    const std::string& prefix_text, const std::string& cycle_text,
+    Color prefix_color, Color cycle_color
 ){
-    DrawRectangle(x, y, width, height, Color{30, 30, 30, 255});
+    DrawRectangle(x, y, width, height, theme::metrics_bg);
+    DrawRectangle(x, y, width, 3, theme::metrics_accent);
 
     std::ostringstream os;
-    os << std::fixed << std::setprecision(3);
-    os << "prefix: " << m.prefix_len
-       << "   cycle: " << m.cycle_len
-       << "   total path: " << (m.prefix_len + m.cycle_len)
-       << "   replans: " << m.replan_count
-       << "   last replan: " << m.last_replan_ms << " ms"
-       << "   g(current): " << m.g_current;
+    os << std::fixed << std::setprecision(2);
+    os << "PREFIX " << m.prefix_len
+       << "     CYCLE " << m.cycle_len
+       << "     TOTAL " << (m.prefix_len + m.cycle_len)
+       << "     REPLANS " << m.replan_count
+       << "     LAST REPLAN " << m.last_replan_ms << " ms"
+       << "     g(current) " << m.g_current;
 
-    DrawText(os.str().c_str(), x + 10, y + height/2 - 8, 18, RAYWHITE);
+    DrawText(os.str().c_str(), x + 16, y + 12, 18, theme::metrics_text);
+
+    std::string prefix_line = "PREFIX PATH: " + prefix_text;
+    std::string cycle_line  = "LOOP PATH: "   + cycle_text;
+    DrawText(prefix_line.c_str(), x + 16, y + 40, 15, prefix_color);
+    DrawText(cycle_line.c_str(),  x + 16, y + 62, 15, cycle_color);
 }
 
 void dynamic_visulizer(
@@ -266,17 +384,26 @@ void dynamic_visulizer(
     const int h = world.height();
 
     const int cellSize      = 80;
-    const int margin        = 20;
-    const int paneGap       = 50;
-    const int paneLabelH    = 28;   // space above each pane for its title
-    const int metricsHeight = 40;
+    const int outerMargin   = 24;
+    const int panelPad      = 10;
+    const int headerH       = 34;
+    const int panelGap      = 40;
+    const int metricsGap    = 16;
+    const int metricsHeight = 90;   // numeric line + prefix line + loop line
 
-    const int worldOriginX = margin;
-    const int robotOriginX = worldOriginX + w * cellSize + paneGap;
-    const int paneOriginY  = margin + paneLabelH;
+    const int panelWidth  = w * cellSize + panelPad * 2;
+    const int panelHeight = headerH + h * cellSize + panelPad * 2;
 
-    const int screenW = margin * 2 + w * cellSize * 2 + paneGap;
-    const int screenH = paneOriginY + h * cellSize + margin + metricsHeight;
+    const int worldPanelX = outerMargin;
+    const int panelY      = outerMargin;
+    const int robotPanelX = worldPanelX + panelWidth + panelGap;
+
+    const int worldOriginX = worldPanelX + panelPad;
+    const int robotOriginX = robotPanelX + panelPad;
+    const int paneOriginY  = panelY + headerH + panelPad;
+
+    const int screenW = outerMargin * 2 + panelWidth * 2 + panelGap;
+    const int screenH = panelY + panelHeight + metricsGap + metricsHeight + outerMargin;
 
     InitWindow(screenW, screenH, "World / Robot belief");
     SetTargetFPS(60);
@@ -303,19 +430,6 @@ void dynamic_visulizer(
     Metrics metrics;
     metrics.prefix_len = dedup_prefix_len(lasso);
     metrics.cycle_len  = (int)path.size() - metrics.prefix_len;
-
-    // Distinct overlay colors cycled per replan, so overlapping replanned
-    // paths stay tellable apart. Red is reserved for a currently-blocked path
-    // and blue for the original (un-replanned) path; these are the rest.
-    const Color replan_palette[] = {
-        Color{255, 200,  80, 128},  // orange
-        Color{200, 120, 255, 128},  // purple
-        Color{ 80, 220, 200, 128},  // teal
-        Color{255, 140, 200, 128},  // pink
-        Color{180, 230,  90, 128},  // lime
-        Color{120, 200, 255, 128},  // sky
-    };
-    const int replan_palette_n = (int)(sizeof(replan_palette) / sizeof(replan_palette[0]));
 
     // Initial sense from the robot's starting cell — seed_from_static only
     // gives the robot Static structure, so without this it starts blind to
@@ -369,10 +483,10 @@ void dynamic_visulizer(
 
         // draw everything from scratch
         BeginDrawing();
-        ClearBackground(RAYWHITE);
+        ClearBackground(theme::background);
 
-        DrawText("World (ground truth)", worldOriginX, margin, 20, BLACK);
-        DrawText("Robot belief",         robotOriginX, margin, 20, BLACK);
+        draw_panel(worldPanelX, panelY, panelWidth, panelHeight, headerH, "WORLD (ground truth)", theme::header_world);
+        draw_panel(robotPanelX, panelY, panelWidth, panelHeight, headerH, "ROBOT BELIEF",          theme::header_robot);
 
         // Left pane: ground truth. Right pane: robot's belief map.
         draw_pane_occupancy(world,     worldOriginX, paneOriginY, cellSize);
@@ -382,19 +496,25 @@ void dynamic_visulizer(
 
         // Path/lasso overlay — robot pane only, since that's what the robot
         // is actually following (planned off belief, not ground truth).
-        for (const Pos& p : path) {
-            if (!world.in_bounds({p.x, p.y})) continue;
-            const int px = robotOriginX + p.x * cellSize;
-            const int py = paneOriginY  + p.y * cellSize;
-
-            if (needs_replan)
-                DrawRectangle(px, py, cellSize, cellSize, Color{252, 182, 182, 128}); // red — blocked
-            else if (replanned)
-                DrawRectangle(px, py, cellSize, cellSize,
-                              replan_palette[(replan_count - 1) % replan_palette_n]); // cycles per replan
-            else
-                DrawRectangle(px, py, cellSize, cellSize, Color{197, 247, 250, 128}); // blue — original
+        // Prefix and loop get distinct colors so the one-time run-up and the
+        // repeating cycle read as different things at a glance; consecutive
+        // replans still cycle through the palette (using adjacent entries
+        // for prefix/cycle so replans stay distinguishable from each other
+        // too), collapsing to a single alert red for both while blocked.
+        Color prefix_color, cycle_color;
+        if (needs_replan) {
+            prefix_color = theme::path_blocked;
+            cycle_color  = theme::path_blocked;
+        } else if (replanned) {
+            int i = (replan_count - 1) % theme::path_palette_n;
+            int j = (i + 1) % theme::path_palette_n;
+            prefix_color = theme::path_palette[i];
+            cycle_color  = theme::path_palette[j];
+        } else {
+            prefix_color = theme::path_original;
+            cycle_color  = theme::path_cycle;
         }
+        draw_path_overlay(path, cycle_start, robotOriginX, paneOriginY, cellSize, prefix_color, cycle_color);
 
         // Labels are world truth, shown on both panes (robot_map was seeded
         // with the same labels in seed_from_static).
@@ -402,8 +522,8 @@ void dynamic_visulizer(
         draw_pane_labels(robot_map, robotOriginX, paneOriginY, cellSize);
 
         if (debug_overlay) {
-            // draw_sensor_outline(sensor_cfg, path[step_index], worldOriginX, paneOriginY, cellSize, Color{0, 120, 255, 200});   // commented out: robot/radius not wanted on the world pane (for now)
-            draw_sensor_outline(sensor_cfg, path[step_index], robotOriginX, paneOriginY, cellSize, Color{0, 120, 255, 200});
+            // draw_sensor_outline(sensor_cfg, path[step_index], worldOriginX, paneOriginY, cellSize, theme::sensor_outline);   // commented out: robot/radius not wanted on the world pane (for now)
+            draw_sensor_outline(sensor_cfg, path[step_index], robotOriginX, paneOriginY, cellSize, theme::sensor_outline);
         }
 
         // advance robot
@@ -468,7 +588,10 @@ void dynamic_visulizer(
         draw_robot_marker(path[step_index], robotOriginX, paneOriginY, cellSize);
 
         metrics.g_current = get_g(planner.prefix.g, path_ids[step_index]);
-        draw_metrics_strip(metrics, 0, paneOriginY + h * cellSize + margin, screenW, metricsHeight);
+        std::string prefix_text = format_positions(path, 0, cycle_start);
+        std::string cycle_text  = format_positions(path, cycle_start, (int)path.size() - 1);
+        draw_metrics_strip(metrics, 0, panelY + panelHeight + metricsGap, screenW, metricsHeight,
+                            prefix_text, cycle_text, prefix_color, cycle_color);
 
         EndDrawing();
     }
