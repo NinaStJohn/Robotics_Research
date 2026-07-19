@@ -64,6 +64,13 @@ public:
     // Convenience: set cost for every edge leaving a given state.
     void set_state_exit_weight(unsigned state_id, double cost);
 
+    // Read-side of set_state_exit_weight: returns the cost of state_id's
+    // outgoing edges (they're all set to the same value by convention, so
+    // any one of them is representative). Needed by dstar_replan to know a
+    // state's cost BEFORE a replan, since it no longer gets that as a
+    // parameter.
+    double state_exit_weight(unsigned state_id) const;
+
     unsigned nba_size() const { return nba_size_; }
 
     // DEBUG: remove before scaling

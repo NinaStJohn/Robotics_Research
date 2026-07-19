@@ -13,6 +13,18 @@ struct LassoResult {
     std::vector<unsigned> cycle_ids;
 };
 
+// One product state whose exit cost changed this replan. `cold`/`new_cost`
+// are captured PER STATE, before any weights are mutated, so a single
+// dstar_replan() call can carry a batch with mixed directions (some states
+// newly blocked, others newly cleared) — a radius-based sensor reveal can
+// produce exactly that in one call, unlike the old single mouse-click
+// trigger which only ever changed one cell in one direction at a time.
+struct StateChange {
+    unsigned state;
+    double   cold;
+    double   new_cost;
+};
+
 LassoResult astar_find_path(const WPA& wpa);
 
 enum class ReplanMode { FULL_RECOMPUTE, DSTAR_INCREMENTAL };
@@ -130,10 +142,12 @@ std::vector<unsigned> detect_changed_states(
 // any precomputed loop that a changed product state touches, refresh
 // cycle_cost/cycle_path, and couple the new loop cost back into the prefix
 // g-field. See MIGRATION_NOTES.md — LTL-D* keeps this incremental instead.
+// Only needs each state's id (the "touched" test doesn't care which
+// direction it changed — it re-searches from scratch either way).
 void recompute_affected_cycles(
     const WPA& wpa,
     DStarPlanner& planner,
-    const std::vector<unsigned>& changed_states,
+    const std::vector<StateChange>& changed_states,
     unsigned current
 );
 
@@ -157,22 +171,27 @@ void repair_rhs_for_changed_edge(
 // costs (repair_rhs_for_changed_edge), repair incrementally
 // (compute_shortest_path, drain_all=false, sstart=acc), read back
 // cycle_cost/cycle_path, then run the same COUPLING step as
-// recompute_affected_cycles (Alg. 3 lines 14-15).
+// recompute_affected_cycles (Alg. 3 lines 14-15). Each state's own
+// cold/new_cost travels with it in `changed_states`, so a mixed-direction
+// batch (some states newly blocked, others newly cleared) is repaired
+// correctly in one call instead of assuming one shared direction.
 void suffixreplan(
     const WPA& wpa,
     DStarPlanner& planner,
-    const std::vector<unsigned>& changed_states,
-    double cold,
-    double new_cost,
+    const std::vector<StateChange>& changed_states,
     unsigned current
 );
 
-// Handle dynamic updates and return new path
+// Handle dynamic updates and return new path. `changed_states` carries each
+// state's own before/after cost (see StateChange) — built by
+// sensing.hpp's build_state_changes() from whatever triggered this replan
+// (a sensor reveal, a scripted test toggle, etc.), so the caller decides
+// per-state direction rather than dstar_replan assuming one for the whole
+// batch.
 LassoResult dstar_replan(
     WPA& wpa,
     DStarPlanner& planner,
     unsigned current,
-    const std::vector<unsigned>& changed_states,
-    bool is_now_blocked,
+    const std::vector<StateChange>& changed_states,
     ReplanMode mode
 );

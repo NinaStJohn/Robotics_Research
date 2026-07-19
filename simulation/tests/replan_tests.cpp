@@ -37,6 +37,7 @@
 #include "ts.hpp"
 #include "dstar.hpp"
 #include "wpa.hpp"
+#include "sensing.hpp"
 
 static const std::string LTL = "G(a -> Fb) & G(b -> Fa)";
 
@@ -287,11 +288,14 @@ static int run_scenario(const std::string& name,
 
     for (const Toggle& t : toggles) {
         Pos c{t.x, t.y};
-        world.set_blocked(c, !world.is_blocked(c));
+        // runtime toggle -> Dynamic (Static cells have no product state to
+        // reweight; only Dynamic cells can be toggled after the product is built)
+        world.set_dynamic(c, !world.is_dynamic(c));
         bool now_blocked = world.is_blocked(c);
         std::vector<unsigned> changed = detect_changed_states(wpa, {c});
+        std::vector<StateChange> changes = build_state_changes(wpa, world, changed);
 
-        lasso = dstar_replan(wpa, planner, current, changed, now_blocked, planner.mode);
+        lasso = dstar_replan(wpa, planner, current, changes, planner.mode);
 
         // Tier 2 first: does incremental agree with a full rebuild?
         double g_inc = 0, g_full = 0;
@@ -351,12 +355,13 @@ static int run_fuzz(unsigned seed, int steps,
     for (int i = 0; i < steps; ++i) {
         Pos c{coord(rng), coord(rng)};
         if ((c.x == 0 && c.y == 0) || (c.x == 5 && c.y == 5)) continue; // skip labels
-        world.set_blocked(c, !world.is_blocked(c));
+        world.set_dynamic(c, !world.is_dynamic(c));
         bool now_blocked = world.is_blocked(c);
         std::vector<unsigned> changed = detect_changed_states(wpa, {c});
+        std::vector<StateChange> changes = build_state_changes(wpa, world, changed);
 
         LassoResult lasso =
-            dstar_replan(wpa, planner, current, changed, now_blocked, planner.mode);
+            dstar_replan(wpa, planner, current, changes, planner.mode);
 
         double g_inc = 0, g_full = 0;
         DStarPlanner fresh;
@@ -404,13 +409,13 @@ int main(int argc, char** argv) {
     fails += check_suffix_init_parity("open 6x6", make_world());
     {
         GridWorld obstacles = make_world();
-        obstacles.set_blocked({1, 1}, true);
-        obstacles.set_blocked({1, 2}, true);
-        obstacles.set_blocked({1, 3}, true);
-        obstacles.set_blocked({0, 3}, true);
-        obstacles.set_blocked({2, 2}, true);
-        obstacles.set_blocked({3, 3}, true);
-        obstacles.set_blocked({4, 4}, true);
+        obstacles.set_static({1, 1}, true);
+        obstacles.set_static({1, 2}, true);
+        obstacles.set_static({1, 3}, true);
+        obstacles.set_static({0, 3}, true);
+        obstacles.set_static({2, 2}, true);
+        obstacles.set_static({3, 3}, true);
+        obstacles.set_static({4, 4}, true);
         fails += check_suffix_init_parity("apps/sim.cpp obstacle layout", obstacles);
     }
 

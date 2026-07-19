@@ -33,6 +33,7 @@
 #include "ts.hpp"
 #include "dstar.hpp"
 #include "wpa.hpp"
+#include "sensing.hpp"
 
 // Flatten a lasso into a parallel (pos, id) path, dropping consecutive
 // duplicate positions — same rule build_flat_path uses in grid_vis.cpp.
@@ -119,13 +120,13 @@ int main(int argc, char** argv) {
     Turtlebot bot1({0,0});
     world.set_label({0,0}, "a", true);
     world.set_label({5,5}, "b", true);
-    world.set_blocked({1,1}, true);
-    world.set_blocked({1,2}, true);
-    world.set_blocked({1,3}, true);
-    world.set_blocked({0,3}, true);
-    world.set_blocked({2,2}, true);
-    world.set_blocked({3,3}, true);
-    world.set_blocked({4,4}, true);
+    world.set_static({1,1}, true);
+    world.set_static({1,2}, true);
+    world.set_static({1,3}, true);
+    world.set_static({0,3}, true);
+    world.set_static({2,2}, true);
+    world.set_static({3,3}, true);
+    world.set_static({4,4}, true);
 
     ProductBundle bundle = build_product_from_world_robot_ltl(world, bot1, ltl);
     WPA wpa(std::move(bundle));
@@ -171,9 +172,13 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        world.set_blocked(cell, !world.is_blocked(cell));
+        // CLI-toggled cells are runtime obstacles, not build-time walls — they
+        // need a Dynamic marking so they keep a product state and stay
+        // reweightable (only Static cells are removed from the graph).
+        world.set_dynamic(cell, !world.is_dynamic(cell));
         bool is_now_blocked = world.is_blocked(cell);
         std::vector<unsigned> changed = detect_changed_states(wpa, {cell});
+        std::vector<StateChange> changes = build_state_changes(wpa, world, changed);
         unsigned current_state = path_ids[step_index];
 
         std::cout << "\n=== toggle (" << bx << "," << by << ") -> "
@@ -183,7 +188,7 @@ int main(int argc, char** argv) {
                   << " | " << changed.size() << " product state(s) affected ===\n";
 
         LassoResult new_lasso = dstar_replan(
-            wpa, planner, current_state, changed, is_now_blocked, planner.mode);
+            wpa, planner, current_state, changes, planner.mode);
 
         if (new_lasso.prefix.empty() && new_lasso.cycle.empty()) {
             std::cout << "REPLAN FAILED (empty lasso)\n";

@@ -20,6 +20,7 @@ features to look into
 #include "dstar.hpp"
 #include "grid_vis.hpp"
 #include "wpa.hpp"
+#include "sensing.hpp"
 
 // make a 2x2 grid world
 // pass in G(a -> Fb)
@@ -118,8 +119,14 @@ int main() {
     world.set_label({5,5}, "b", true);
     world.set_label({2,2}, "e", true);          // forbidden cell on the diagonal
 
+    // Robot belief map: Static structure known from t=0 (seeded here), Dynamic
+    // obstacles absent until sensed. The product is built from THIS, not
+    // `world` — the robot never gets direct access to ground truth.
+    GridWorld robot_map = seed_from_static(world);
+    SensorConfig sensor_cfg{ /* radius */ 2.0, SensorMetric::Chebyshev, SensingCadence::EveryTick };
+
     // LTL graph  --- BUG: INCLUDE THE ROBOT LOCATION IN THE BUILD - change the init!!!!!!!!!!!!
-    ProductBundle bundle = build_product_from_world_robot_ltl(world, bot1, ltl);
+    ProductBundle bundle = build_product_from_world_robot_ltl(robot_map, bot1, ltl);
 
     // wrap in WPA for weighted search
     WPA wpa(std::move(bundle));
@@ -150,7 +157,7 @@ int main() {
         std::cout << "  (" << p.x << ", " << p.y << ")\n";
 
     // grid world vizulizer — prefix in one color, cycle in another
-    dynamic_visulizer(world, lasso, wpa, planner);
+    dynamic_visulizer(world, robot_map, lasso, wpa, planner, sensor_cfg);
 
     return 0;
 }

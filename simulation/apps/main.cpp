@@ -42,16 +42,16 @@ int main() {
     world.set_label({0,0}, "a", true);
     world.set_label({5,5}, "b", true);
 
-    world.set_blocked({1,1}, true);
-    world.set_blocked({1,2}, true);
-    world.set_blocked({1,3}, true);
-    world.set_blocked({0,3}, true);
+    world.set_static({1,1}, true);
+    world.set_static({1,2}, true);
+    world.set_static({1,3}, true);
+    world.set_static({0,3}, true);
 
-    
-    world.set_blocked({1,1}, true);
-    world.set_blocked({2,2}, true);
-    world.set_blocked({3,3}, true);
-    world.set_blocked({4,4}, true);
+
+    world.set_static({1,1}, true);
+    world.set_static({2,2}, true);
+    world.set_static({3,3}, true);
+    world.set_static({4,4}, true);
 
 
     // world.setblocked(1.0);

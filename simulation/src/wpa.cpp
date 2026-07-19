@@ -146,3 +146,11 @@ void WPA::set_state_exit_weight(unsigned state_id, double cost) {
         weights_[idx] = cost;
     }
 }
+
+double WPA::state_exit_weight(unsigned state_id) const {
+    for (const auto& e : bundle_.prod->out(state_id)) {
+        unsigned idx = bundle_.prod->edge_number(e);
+        return weights_.at(idx);
+    }
+    return 1.0;  // no outgoing edges
+}

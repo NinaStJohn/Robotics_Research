@@ -226,7 +226,11 @@ static spot::twa_graph_ptr world_to_ts(
  
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
-            if (world.is_blocked({x, y})) continue;
+            // Only Static cells (walls) stay absent from the product graph —
+            // Dynamic cells always get a state, so blocking/unblocking one
+            // later is always an edge-cost change (WPA::set_state_exit_weight),
+            // never a topology change.
+            if (world.is_static({x, y})) continue;
  
             unsigned sid = ts->new_state();
             id[static_cast<std::size_t>(y * w + x)] = static_cast<int>(sid);
@@ -242,7 +246,7 @@ static spot::twa_graph_ptr world_to_ts(
  
     // 3) Initial state
     Pos start = robot.position();
-    if (!world.in_bounds(start) || world.is_blocked(start)) {
+    if (!world.in_bounds(start) || world.is_static(start)) {
         std::cerr << "world_to_ts(): robot start is out of bounds or blocked\n";
         return spot::twa_graph_ptr();
     }
@@ -272,7 +276,7 @@ static spot::twa_graph_ptr world_to_ts(
                 // Stay: nx,ny unchanged
  
                 if (!world.in_bounds({nx, ny})) continue;
-                if (world.is_blocked({nx, ny}))  continue;
+                if (world.is_static({nx, ny}))  continue;
  
                 int t = id[static_cast<std::size_t>(ny * w + nx)];
                 if (t < 0) continue;

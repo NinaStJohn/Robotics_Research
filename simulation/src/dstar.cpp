@@ -551,7 +551,7 @@ void compute_shortest_path(
 void recompute_affected_cycles(
     const WPA& wpa,
     DStarPlanner& planner,
-    const std::vector<unsigned>& changed_states,
+    const std::vector<StateChange>& changed_states,
     unsigned current
 ){
     // snapshot the anchors: we mutate cycle_path/cycle_cost while iterating
@@ -566,8 +566,8 @@ void recompute_affected_cycles(
 
         bool touched = false;
         for (unsigned s : loop) {
-            for (unsigned c : changed_states) {
-                if (s == c) { touched = true; break; }
+            for (const StateChange& sc : changed_states) {
+                if (s == sc.state) { touched = true; break; }
             }
             if (touched) break;
         }
@@ -677,9 +677,7 @@ void repair_rhs_for_changed_edge(
 void suffixreplan(
     const WPA& wpa,
     DStarPlanner& planner,
-    const std::vector<unsigned>& changed_states,
-    double cold,
-    double new_cost,
+    const std::vector<StateChange>& changed_states,
     unsigned current
 ){
     for (std::unordered_map<unsigned, DStarSearch>::iterator it = planner.suffix.begin();
@@ -691,9 +689,9 @@ void suffixreplan(
             ? planner.cycle_cost.at(acc)
             : std::numeric_limits<double>::infinity();
 
-        for (unsigned u : changed_states) {
-            repair_rhs_for_changed_edge(wpa, planner, sfx, u, cold, new_cost);
-            update_vertex(wpa, sfx, u, acc);
+        for (const StateChange& sc : changed_states) {
+            repair_rhs_for_changed_edge(wpa, planner, sfx, sc.state, sc.cold, sc.new_cost);
+            update_vertex(wpa, sfx, sc.state, acc);
         }
 
         // repair incrementally, sstart = acc (this search's own anchor, not

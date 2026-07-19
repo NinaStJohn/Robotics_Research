@@ -91,14 +91,20 @@ void update_vertex(
 // {46}     if u != sgoal: rhs(u) = min over Succ(u) of (c(u,s') + g(s'))
 // {47}   UpdateVertex(u)
 // {48} ComputeShortestPath()
+//
+// Each StateChange carries its own cold/new_cost (see dstar.hpp) instead of
+// one shared direction for the whole batch — required once changes can
+// come from a radius-based sensor reveal, which can report several cells at
+// once in mixed directions (some newly blocked, others newly cleared),
+// unlike the old single mouse-click trigger which only ever changed one
+// cell in one direction per call.
 // ------------------------------------------------------------------
 
 LassoResult dstar_replan(
     WPA& wpa,
     DStarPlanner& planner,
     unsigned current,
-    const std::vector<unsigned>& changed_states,
-    bool is_now_blocked,
+    const std::vector<StateChange>& changed_states,
     ReplanMode mode
 ){
     if (mode == ReplanMode::FULL_RECOMPUTE) {
@@ -111,22 +117,19 @@ LassoResult dstar_replan(
     // {39} slast = sstart
     planner.slast = current;
 
-    double new_cost = is_now_blocked
-        ? std::numeric_limits<double>::infinity()
-        : 1.0;
-    double cold = is_now_blocked ? 1.0 : std::numeric_limits<double>::infinity();
-
     std::ofstream& log = dbg("replan.log");
     log << "\n========================================================\n";
     log << "[replan] current=" << current
         << " pos=(" << wpa.pos_of(current).x << "," << wpa.pos_of(current).y << ")"
         << " nba=" << wpa.nba_state_of(current)
-        << " is_now_blocked=" << is_now_blocked
-        << " new_cost=" << new_cost << " cold=" << cold
         << " #changed=" << changed_states.size() << "\n";
 
     // {40-47} for each changed product state
-    for (unsigned u : changed_states) {
+    for (const StateChange& sc : changed_states) {
+        unsigned u        = sc.state;
+        double   cold     = sc.cold;
+        double   new_cost = sc.new_cost;
+
         // {42} update edge cost in WPA
         wpa.set_state_exit_weight(u, new_cost);
 
@@ -143,6 +146,7 @@ LassoResult dstar_replan(
             << " pos=(" << wpa.pos_of(u).x << "," << wpa.pos_of(u).y << ")"
             << " nba=" << wpa.nba_state_of(u)
             << " branch=" << (cold > new_cost ? "DECREASE" : "INCREASE")
+            << " cold=" << cold << " new_cost=" << new_cost
             << " g=" << g_before
             << " rhs:" << rhs_before << "->" << get_rhs(planner.prefix.rhs, u) << "\n";
         for (const WPA::Neighbor& nb : wpa.neighbors_ext(u)) {
@@ -167,7 +171,7 @@ LassoResult dstar_replan(
     // scenario — see SuffixMode in dstar.hpp.
     switch (planner.suffix_mode) {
         case SuffixMode::OPTION2_INCREMENTAL:
-            suffixreplan(wpa, planner, changed_states, cold, new_cost, current);
+            suffixreplan(wpa, planner, changed_states, current);
             break;
         case SuffixMode::OPTION1_ASTAR:
         default:
